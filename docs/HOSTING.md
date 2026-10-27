@@ -42,3 +42,10 @@ The website manages accounts; it does not supply VPN bandwidth. A Linux host wit
 6. Enable `TPP_REMOTE_GATEWAY=1` on the admin service only after the gateway is operational. Test expiry, quotas, suspension and actual internet routing on a physical Android device.
 
 Web-only restarts preserve active gateway session records. A gateway restart clears stale tunnel sessions. Do not run several packet gateways concurrently in this pilot. Strict database accounting over the network adds latency; capacity must be measured and the transport reviewed before selling access.
+
+## Hosting created
+
+- Admin/setup URL: https://top-private-plug-admin.onrender.com/admin/
+- Owner environment settings: https://dashboard.render.com/web/srv-dbggmc61egvs73a84s8g/env
+- Service is free, in Frankfurt, linked to the private GitHub repository with automatic deploys.
+- Deployment was created WITHOUT database credentials. The owner must enter connection strings privately in Render. Until then the site is a read-only setup guide, not an operational admin dashboard.
