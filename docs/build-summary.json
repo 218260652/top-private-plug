@@ -1,0 +1,21 @@
+{
+  "tests_passed": 42,
+  "package": "za.co.topprivateplug",
+  "version": "0.1.1-pilot",
+  "minimum_android_api": "26",
+  "target_android_api": "35",
+  "debug_signed": true,
+  "apk_sha256": "e539e2ead53ea40611180bcc53dd1d2351de79b698a3be6a443b4373aea3c7ca",
+  "live_gateway_deployed": false,
+  "real_android_runtime_tested": false,
+  "real_tun_internet_routing_tested": false,
+  "admin_browser_visual_tested": false,
+  "protocol": "TPP/1",
+  "android_compiler": "ECJ 3.39.0",
+  "ecj_sha256": "01f5a92ac19bb2b3bf85e295a68f2c73c264369109158b566ce9b490af982948",
+  "version_code": 2,
+  "whatsapp_number": "+27 70 384 1868",
+  "whatsapp_link": "https://wa.me/27703841868",
+  "whatsapp_on_device_tested": false,
+  "payments_confirmed_by": "admin manually"
+}

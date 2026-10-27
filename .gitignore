@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+data/
+*.sqlite3*
+*.db*
+*.keystore
+.local-signing/
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+*.apk
+*.idsig
+certs/
+test-output/
+
+# Only reviewed pilot downloads are intentionally tracked.
+!downloads/*.apk

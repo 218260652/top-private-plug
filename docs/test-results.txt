@@ -1,0 +1,47 @@
+test_admin_authentication_required (test_api.ApiTests.test_admin_authentication_required) ... ok
+test_bounded_request_body (test_api.ApiTests.test_bounded_request_body) ... ok
+test_client_cannot_access_admin (test_api.ApiTests.test_client_cannot_access_admin) ... ok
+test_cross_origin_and_missing_origin_rejected (test_api.ApiTests.test_cross_origin_and_missing_origin_rejected) ... ok
+test_full_admin_to_client_flow (test_api.ApiTests.test_full_admin_to_client_flow) ... ok
+test_login_rate_limit (test_api.ApiTests.test_login_rate_limit) ... ok
+test_security_headers_and_ui_assets (test_api.ApiTests.test_security_headers_and_ui_assets) ... ok
+test_session_cookie_http_only_and_strict (test_api.ApiTests.test_session_cookie_http_only_and_strict) ... ok
+test_admin_can_shorten_trial_after_activation (test_control.ControlTests.test_admin_can_shorten_trial_after_activation) ... ok
+test_atomic_concurrent_activation_only_one_device (test_control.ControlTests.test_atomic_concurrent_activation_only_one_device) ... ok
+test_cleartext_secrets_not_stored (test_control.ControlTests.test_cleartext_secrets_not_stored) ... ok
+test_code_bound_to_device (test_control.ControlTests.test_code_bound_to_device) ... ok
+test_concurrent_quota_charge_atomic (test_control.ControlTests.test_concurrent_quota_charge_atomic) ... ok
+test_expired_challenge_rejected (test_control.ControlTests.test_expired_challenge_rejected) ... ok
+test_expiry_revokes_tunnel_even_without_client_polling (test_control.ControlTests.test_expiry_revokes_tunnel_even_without_client_polling) ... ok
+test_first_activation_and_reentry_never_restart_clock (test_control.ControlTests.test_first_activation_and_reentry_never_restart_clock) ... ok
+test_invalid_codes_and_quotas (test_control.ControlTests.test_invalid_codes_and_quotas) ... ok
+test_one_concurrent_session (test_control.ControlTests.test_one_concurrent_session) ... ok
+test_password_session_logout (test_control.ControlTests.test_password_session_logout) ... ok
+test_private_addresses_are_not_reused_across_accounts (test_control.ControlTests.test_private_addresses_are_not_reused_across_accounts) ... ok
+test_profile_updates_revoke_old_sessions (test_control.ControlTests.test_profile_updates_revoke_old_sessions) ... ok
+test_quota_no_overshoot_and_both_directions (test_control.ControlTests.test_quota_no_overshoot_and_both_directions) ... ok
+test_rebind_preserves_expiry (test_control.ControlTests.test_rebind_preserves_expiry) ... ok
+test_reconnect_keeps_same_account_address (test_control.ControlTests.test_reconnect_keeps_same_account_address) ... ok
+test_renewal_and_quota_edit (test_control.ControlTests.test_renewal_and_quota_edit) ... ok
+test_replayed_proof_rejected (test_control.ControlTests.test_replayed_proof_rejected) ... ok
+test_seven_and_thirty_day_plans (test_control.ControlTests.test_seven_and_thirty_day_plans) ... ok
+test_single_use_ticket (test_control.ControlTests.test_single_use_ticket) ... ok
+test_sni_and_tls_policy (test_control.ControlTests.test_sni_and_tls_policy) ... ok
+test_suspend_and_delete_revoke (test_control.ControlTests.test_suspend_and_delete_revoke) ... ok
+test_tampered_signature_rejected (test_control.ControlTests.test_tampered_signature_rejected) ... ok
+test_totp_rfc_vector (test_control.ControlTests.test_totp_rfc_vector) ... ok
+test_trial_custom_hours (test_control.ControlTests.test_trial_custom_hours) ... ok
+test_wrong_purpose_rejected (test_control.ControlTests.test_wrong_purpose_rejected) ... ok
+test_admin_suspension_cuts_idle_connection (test_gateway.GatewayTests.test_admin_suspension_cuts_idle_connection) ... ok
+test_expiry_cuts_connection_without_phone_clock (test_gateway.GatewayTests.test_expiry_cuts_connection_without_phone_clock) ... ok
+test_invalid_ticket_rejected (test_gateway.GatewayTests.test_invalid_ticket_rejected) ... ok
+test_packet_validation_rejects_ipv6_and_truncation (test_gateway.GatewayTests.test_packet_validation_rejects_ipv6_and_truncation) ... ok
+test_quota_enforced_by_gateway (test_gateway.GatewayTests.test_quota_enforced_by_gateway) ... ok
+test_spoofed_and_private_destinations_dropped (test_gateway.GatewayTests.test_spoofed_and_private_destinations_dropped) ... ok
+test_tls_handshake_packet_roundtrip_and_real_accounting (test_gateway.GatewayTests.test_tls_handshake_packet_roundtrip_and_real_accounting) ... ok
+test_untrusted_server_certificate_rejected (test_gateway.GatewayTests.test_untrusted_server_certificate_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 42 tests in 3.758s
+
+OK
