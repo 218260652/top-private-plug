@@ -1,6 +1,6 @@
 [![Checks and pilot APK](https://github.com/218260652/top-private-plug/actions/workflows/checks.yml/badge.svg)](https://github.com/218260652/top-private-plug/actions/workflows/checks.yml)
 
-# Top private Plug — 0.1.1 pilot
+# Top private Plug — 0.1.2 pilot
 
 An original Android VPN client, admin dashboard, account API, SQLite/PostgreSQL storage and Linux TLS gateway. This is an installable **debug-signed pilot**, not a verified commercial VPN release. The hosted admin deployment is described in [docs/HOSTING.md](docs/HOSTING.md); the VPN gateway still needs its own Linux host. No default admin credentials are shipped.
 
@@ -29,7 +29,7 @@ An original Android VPN client, admin dashboard, account API, SQLite/PostgreSQL 
 1. Deploy your own service using [deploy/README.md](deploy/README.md).
 2. Create your admin account on the server. Add an enabled connection profile pointing at the real TLS gateway.
 3. Create a short trial with a small data allowance. Copy its access code privately.
-4. Install `Top-private-Plug-0.1.1-pilot.apk` on Android 8.0 or newer.
+4. Install `Top-private-Plug-0.1.2-pilot.apk` on Android 8.0 or newer.
 5. Open Settings → Service address and set your admin/API HTTPS origin.
 6. Enter the access code, choose an assigned carrier profile and approve Android's VPN connection dialog.
 7. Verify real traffic and server enforcement using the deployment acceptance checks before selling access.
@@ -88,8 +88,12 @@ Buy and top-up buttons open a prefilled WhatsApp request to **+27 70 384 1868**.
 
 ## GitHub updates
 
-This repository contains the customer app, admin website, API and Linux gateway. The current reviewed pilot is in `downloads/Top-private-Plug-0.1.1-pilot.apk`. Because the repository is private, its files are not a public customer download link.
+This repository contains the customer app, admin website, API and Linux gateway. The current reviewed pilot is in `downloads/Top-private-Plug-0.1.2-pilot.apk`. Because the repository is private, its files are not a public customer download link.
 
 After each push or pull request, GitHub Actions runs the backend tests and builds a debug pilot APK. Open **Actions → Checks and pilot APK → a successful run → Artifacts** to download a build. The workflow does not deploy the admin site or start a VPN server. Each CI run generates a temporary debug signing key, so CI APKs may require uninstalling a previous build; for reliable upgrades, configure an owner-controlled release signing key through GitHub Secrets in a future release workflow. Never commit signing keys, passwords, access codes, databases or customer records.
 
 The actual admin website needs its Python backend and persistent database on a running host. GitHub Pages cannot run this Python API or the Linux TUN gateway. Follow `deploy/README.md` for the server deployment path.
+
+## Backend verification
+
+The hosted admin/API is live at https://top-private-plug-admin.onrender.com/admin/ with database credentials configured privately by the owner. Deployment passed 26 PostgreSQL entitlement tests; the admin account exists and unauthenticated admin requests are rejected. Android pilot 0.1.2 defaults to this HTTPS backend while preserving any previously selected service address. The Linux VPN packet gateway remains unprovisioned and disabled; no actual phone-to-internet VPN connection is claimed.

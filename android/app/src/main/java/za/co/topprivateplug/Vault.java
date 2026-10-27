@@ -12,9 +12,10 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 final class Vault {
+    static final String DEFAULT_SERVICE_ORIGIN = "https://top-private-plug-admin.onrender.com";
     private final SharedPreferences prefs;
     Vault(Context context) { prefs = context.getSharedPreferences("tpp", Context.MODE_PRIVATE); }
-    String endpoint() { return prefs.getString("endpoint", ""); }
+    String endpoint() { return prefs.getString("endpoint", DEFAULT_SERVICE_ORIGIN); }
     void endpoint(String value) { prefs.edit().putString("endpoint", value).remove("token").apply(); }
     private SecretKey key() throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);

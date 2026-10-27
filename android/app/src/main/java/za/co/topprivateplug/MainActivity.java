@@ -149,7 +149,7 @@ public final class MainActivity extends Activity {
         add(content,button("Activate / recover access",false,v->codeDialog(false)),15);
         add(content,button("WhatsApp: "+PurchaseRequest.DISPLAY_PHONE,false,v->purchaseDialog(account!=null)),15);
         add(content,button("Forget access on this phone",false,v->new AlertDialog.Builder(this).setTitle("Forget access?").setMessage("This removes the local login. Your subscription keeps its original expiry. You can recover it with the same code on this installation.").setPositiveButton("Forget",(d,n)->{stopService(new Intent(this,TunnelService.class));try{vault.token("");}catch(Exception ignored){}account=null;profiles=new JSONArray();tab="Home";render();}).setNegativeButton("Cancel",null).show()),20);
-        add(content,text("Top private Plug · 0.1.1 pilot\nOriginal client and service · TPP/1 transport",11,MUTED,false),20);
+        add(content,text("Top private Plug · 0.1.2 pilot\nOriginal client and service · TPP/1 transport",11,MUTED,false),20);
     }
     void purchaseDialog(boolean topUp) {
         String[] options={"7 days", "15 days", "30 days", "Custom duration or data top-up"};

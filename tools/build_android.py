@@ -45,7 +45,7 @@ def main():
     manifest.write(build / 'AndroidManifest.xml', encoding='utf-8', xml_declaration=True)
     run(tools / 'aapt2', 'link', '-o', build / 'base.apk', '--manifest', build / 'AndroidManifest.xml',
         '-I', android, '--java', build / 'gen', '--min-sdk-version', '26', '--target-sdk-version', '35',
-        '--version-code', '2', '--version-name', '0.1.1-pilot', '--debug-mode', build / 'res.zip')
+        '--version-code', '3', '--version-name', '0.1.2-pilot', '--debug-mode', build / 'res.zip')
     java = sorted(source.glob('java/**/*.java')) + sorted((build / 'gen').glob('**/*.java'))
     if args.ecj:
         run('java', '-jar', args.ecj, '-encoding', 'UTF-8', '-source', '1.8', '-target', '1.8', '-bootclasspath', str(android) + os.pathsep + str(tools / 'core-lambda-stubs.jar'), '-d', build / 'classes', *java)
@@ -64,7 +64,7 @@ def main():
     if not keystore.exists():
         run('keytool', '-genkeypair', '-keystore', keystore, '-storepass', 'android', '-keypass', 'android', '-alias',
             'androiddebugkey', '-dname', 'CN=Android Debug,O=Android,C=ZA', '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000')
-    output = ROOT / 'Top-private-Plug-0.1.1-pilot.apk'
+    output = ROOT / 'Top-private-Plug-0.1.2-pilot.apk'
     run(tools / 'apksigner', 'sign', '--ks', keystore, '--ks-key-alias', 'androiddebugkey', '--ks-pass', 'pass:android',
         '--key-pass', 'pass:android', '--out', output, build / 'aligned.apk')
     run(tools / 'apksigner', 'verify', '--verbose', output)

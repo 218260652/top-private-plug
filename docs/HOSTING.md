@@ -49,3 +49,7 @@ Web-only restarts preserve active gateway session records. A gateway restart cle
 - Owner environment settings: https://dashboard.render.com/web/srv-dbggmc61egvs73a84s8g/env
 - Service is free, in Frankfurt, linked to the private GitHub repository with automatic deploys.
 - Deployment was created WITHOUT database credentials. The owner must enter connection strings privately in Render. Until then the site is a read-only setup guide, not an operational admin dashboard.
+
+## Owner setup verified
+
+The owner completed runtime database configuration. The latest deployment reports live, 26 PostgreSQL entitlement tests passed, `/health` returns `status: ok` with `gateway_enabled: false`, and `/setup-status` returns `setup_required: false`. The admin login exists. Login was not attempted with the owner’s private password. The gateway still needs a separately provisioned Linux server and end-to-end acceptance testing.
