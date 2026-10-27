@@ -6,6 +6,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from backend.app import create_app
 from backend.store import Store
 from tests.test_control import device, proof
+from backend.hosted import create_setup_app
 
 
 class ApiTests(unittest.IsolatedAsyncioTestCase):
@@ -68,3 +69,19 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bounded_request_body(self):
         r=await self.client.post('/v1/challenge',json={'public_key':'x'*20000,'purpose':'activate'});self.assertEqual(r.status,413)
+
+
+class SetupOnlyTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.client=TestClient(TestServer(create_setup_app()));await self.client.start_server()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+
+    async def test_setup_page_does_not_accept_secrets_or_accounts(self):
+        r=await self.client.get('/');self.assertEqual(r.status,200);page=await r.text();self.assertNotIn('<form',page)
+        for path in ['/admin/api/login','/admin/api/accounts','/v1/activate','/setup']:
+            r=await self.client.post(path,json={'password':'attacker','code':'fake'});self.assertEqual(r.status,503)
+
+    async def test_setup_status_clearly_not_operational(self):
+        r=await self.client.get('/health');data=await r.json();self.assertFalse(data['admin_ready']);self.assertFalse(data['gateway_enabled']);self.assertEqual(data['status'],'setup_required')

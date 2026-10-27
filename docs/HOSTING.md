@@ -6,6 +6,8 @@ The service is linked to this repository's `main` branch. Its build command is `
 
 ## First login: choose your password privately
 
+If database credentials have not been configured, the hosted site serves a read-only setup guide. The owner must copy the pooled connection into `DATABASE_URL` and the direct connection into `TPP_MIGRATION_URL` using Render's private Environment settings. No credentials are accepted through that public page, and all account/API writes return 503 until configuration is complete.
+
 1. Open this service in the Render Dashboard and select **Environment**.
 2. Add `TPP_BOOTSTRAP_PASSWORD` with a unique password of at least 14 characters. Enter it in Render, not in chat or GitHub.
 3. Save and redeploy. On first startup only, the app creates username **admin** with a hashed password in PostgreSQL.
