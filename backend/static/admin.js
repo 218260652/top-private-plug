@@ -55,5 +55,17 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
  if(b.dataset.suspend){const a=state.accounts.find(a=>a.id===b.dataset.suspend);await api('accounts/'+a.id,'PATCH',{suspended:!a.suspended});await refresh();}
  if(b.dataset.delete&&confirm('Delete this account and revoke its access? This cannot be undone.')){await api('accounts/'+b.dataset.delete,'DELETE');await refresh();}
 }catch(error){notice(error.message);}});
-view(currentView);refresh().catch(e=>{if(e.message!=='Sign in to continue')notice(e.message);});
+async function initialize() {
+  try {
+    const response=await fetch('/setup-status',{credentials:'same-origin'});
+    const setup=await response.json();
+    if(setup.setup_required){
+      $('login-panel').hidden=false;
+      notice('First-time setup: open this service in Render → Environment. Add TPP_BOOTSTRAP_PASSWORD with a unique password of at least 14 characters, then save and redeploy. Sign in here as admin with that password.');
+      return;
+    }
+    await refresh();
+  } catch(e){if(e.message!=='Sign in to continue')notice(e.message);}
+}
+view(currentView);initialize();
 setInterval(()=>{if(!$('workspace').hidden)refresh().catch(e=>notice(e.message));},30000);

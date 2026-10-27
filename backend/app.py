@@ -90,6 +90,9 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     async def health(request):
         return web.json_response({'status': 'ok', 'gateway_enabled': gateway_enabled, 'protocol': 'TPP/1'})
 
+    async def setup_status(request):
+        return web.json_response({'setup_required': not store.has_admin()})
+
     async def login(request):
         limiter.check(('login', peer(request)), 5, 300)
         data = await body(request)
@@ -161,8 +164,13 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     async def index(request):
         return web.FileResponse(Path(__file__).parent / 'static' / 'index.html')
 
+    async def root(request):
+        raise web.HTTPFound('/admin/')
+
     app = web.Application(middlewares=[security], client_max_size=16384)
     app.router.add_get('/health', health)
+    app.router.add_get('/setup-status', setup_status)
+    app.router.add_get('/', root)
     app.router.add_get('/admin', index)
     app.router.add_get('/admin/', index)
     app.router.add_static('/assets/', Path(__file__).parent / 'static')
@@ -186,31 +194,39 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
 
 async def main():
     os.umask(0o077)
-    database = os.environ.get('TPP_DB', 'data/tpp.sqlite3')
-    Path(database).parent.mkdir(parents=True, exist_ok=True)
-    process_lock = open(database + '.lock', 'a')
+    database = os.environ.get('DATABASE_URL') or os.environ.get('TPP_DB', 'data/tpp.sqlite3')
+    is_postgres = database.startswith(('postgresql://', 'postgres://'))
+    if not is_postgres:
+        Path(database).parent.mkdir(parents=True, exist_ok=True)
+    process_lock = open('/tmp/top-private-plug.lock' if is_postgres else database + '.lock', 'a')
     try:
         fcntl.flock(process_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         raise SystemExit('Another Top private Plug process is already using this database')
-    store = Store(database)
-    store.maintenance(startup=True)
+    store = Store(database, initialize=os.environ.get('TPP_SKIP_SCHEMA_INIT') != '1')
+    # A web-only restart must not revoke a separately hosted gateway's sessions.
+    store.maintenance(startup=not is_postgres)
+    bootstrap_password = os.environ.get('TPP_BOOTSTRAP_PASSWORD', '')
+    if bootstrap_password and not store.has_admin():
+        store.bootstrap('admin', bootstrap_password)
     cert, key = os.environ.get('TPP_TLS_CERT', ''), os.environ.get('TPP_TLS_KEY', '')
     enabled = bool(cert and key)
     local_dev = os.environ.get('TPP_LOCAL_DEV') == '1'
-    bind = os.environ.get('TPP_HTTP_BIND', '127.0.0.1')
+    origin = os.environ.get('TPP_PUBLIC_ORIGIN') or os.environ.get('RENDER_EXTERNAL_URL', '')
+    bind = os.environ.get('TPP_HTTP_BIND', '0.0.0.0' if os.environ.get('RENDER_EXTERNAL_URL') else '127.0.0.1')
     if local_dev and bind not in ['127.0.0.1', '::1']:
         raise SystemExit('Local HTTP development mode must bind to loopback')
-    if not local_dev and not os.environ.get('TPP_PUBLIC_ORIGIN', '').startswith('https://'):
+    if not local_dev and not origin.startswith('https://'):
         raise SystemExit('Set TPP_PUBLIC_ORIGIN to your public HTTPS origin')
     gateway = Gateway(store)
     if enabled:
         await gateway.start(os.environ.get('TPP_GATEWAY_BIND', '0.0.0.0'), int(os.environ.get('TPP_GATEWAY_PORT', '443')), cert, key)
-    app = create_app(store, os.environ.get('TPP_PUBLIC_ORIGIN', 'https://admin.example.com'),
-                     secure_cookies=os.environ.get('TPP_LOCAL_DEV') != '1', gateway_enabled=enabled)
+    app = create_app(store, origin or 'http://127.0.0.1:8080',
+                     secure_cookies=os.environ.get('TPP_LOCAL_DEV') != '1',
+                     gateway_enabled=enabled or os.environ.get('TPP_REMOTE_GATEWAY') == '1')
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
-    await web.TCPSite(runner, os.environ.get('TPP_HTTP_BIND', '127.0.0.1'), int(os.environ.get('TPP_HTTP_PORT', '8080'))).start()
+    await web.TCPSite(runner, bind, int(os.environ.get('TPP_HTTP_PORT') or os.environ.get('PORT', '8080'))).start()
     print('Top private Plug API ready; gateway=' + str(enabled), flush=True)
     try:
         while True:
@@ -224,6 +240,7 @@ async def main():
     finally:
         await gateway.close()
         await runner.cleanup()
+        store.close()
 
 
 if __name__ == '__main__':

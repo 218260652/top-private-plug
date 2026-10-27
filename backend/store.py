@@ -79,8 +79,20 @@ CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, at INTEGER NOT NULL, ac
 
 
 class Store:
-    def __init__(self, path, clock=time.time):
+    def __init__(self, path, clock=time.time, schema='public', initialize=True):
         self.path, self.clock = str(path), clock
+        self.postgres = None
+        if self.path.startswith(('postgresql://', 'postgres://')):
+            from .postgres import Database, schema_sql
+            self.postgres = Database(self.path, schema)
+            if not initialize:
+                return
+            with self.db() as db:
+                db.execute('BEGIN IMMEDIATE')
+                db.executescript(schema_sql(SCHEMA))
+                db.execute('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS slot BIGINT')
+                db.execute('CREATE UNIQUE INDEX IF NOT EXISTS account_slot ON accounts(slot)')
+            return
         with self.db() as db:
             db.execute('PRAGMA journal_mode=WAL')
             db.executescript(SCHEMA)
@@ -90,6 +102,10 @@ class Store:
 
     @contextmanager
     def db(self):
+        if self.postgres:
+            with self.postgres.connect() as db:
+                yield db
+            return
         db = sqlite3.connect(self.path, timeout=15)
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA foreign_keys=ON')
@@ -99,6 +115,14 @@ class Store:
                 yield db
         finally:
             db.close()
+
+    def close(self):
+        if self.postgres:
+            self.postgres.close()
+
+    def has_admin(self):
+        with self.db() as db:
+            return db.execute('SELECT 1 FROM admins WHERE id=1').fetchone() is not None
 
     def now(self):
         return int(self.clock())
@@ -111,6 +135,7 @@ class Store:
         if len(password) < 14:
             raise Fault('Use an admin password of at least 14 characters')
         with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
             if db.execute('SELECT 1 FROM admins').fetchone():
                 raise Fault('Admin already exists; use the local reset-admin command')
             db.execute('INSERT INTO admins VALUES(1,?,?,?)', (username, password_hash(password), totp))

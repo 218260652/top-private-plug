@@ -11,3 +11,6 @@ propcache==0.5.4
 pycparser==3.11
 typing_extensions==4.16.0
 yarl==1.25.1
+psycopg==3.3.6
+psycopg-binary==3.3.6
+psycopg-pool==3.3.3

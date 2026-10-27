@@ -2,7 +2,7 @@
 
 # Top private Plug — 0.1.1 pilot
 
-An original Android VPN client, admin dashboard, account API, SQLite database and Linux TLS gateway. This is an installable **debug-signed pilot**, not a verified commercial VPN release. No live service is deployed and no default admin credentials are shipped.
+An original Android VPN client, admin dashboard, account API, SQLite/PostgreSQL storage and Linux TLS gateway. This is an installable **debug-signed pilot**, not a verified commercial VPN release. The hosted admin deployment is described in [docs/HOSTING.md](docs/HOSTING.md); the VPN gateway still needs its own Linux host. No default admin credentials are shipped.
 
 ## What is implemented
 

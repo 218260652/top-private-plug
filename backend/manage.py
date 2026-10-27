@@ -12,14 +12,17 @@ def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser()
     parser.add_argument('command', choices=['create-admin', 'reset-admin', 'backup'])
-    parser.add_argument('--db', default=os.environ.get('TPP_DB', 'data/tpp.sqlite3'))
+    parser.add_argument('--db', default=os.environ.get('DATABASE_URL') or os.environ.get('TPP_DB', 'data/tpp.sqlite3'))
     parser.add_argument('--username', default='admin')
     parser.add_argument('--mfa', action='store_true')
     parser.add_argument('--output', default='backup.sqlite3')
     args = parser.parse_args()
-    Path(args.db).parent.mkdir(parents=True, exist_ok=True)
+    if not args.db.startswith(('postgres://', 'postgresql://')):
+        Path(args.db).parent.mkdir(parents=True, exist_ok=True)
     store = Store(args.db)
     if args.command == 'backup':
+        if store.postgres:
+            raise Fault('For PostgreSQL, use pg_dump with your securely stored direct connection string')
         import sqlite3
         with store.db() as source, sqlite3.connect(args.output) as target:
             source.backup(target)
