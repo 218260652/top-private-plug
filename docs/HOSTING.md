@@ -32,6 +32,8 @@ Do not commit credential values. Free tiers have resource limits and may sleep; 
 
 ## VPN gateway is separate
 
+For the current Render + Neon setup, use the dedicated-server installer and owner checklist in [`deploy/GATEWAY-HANDOFF.md`](../deploy/GATEWAY-HANDOFF.md). It provides a systemd service, reboot forwarding and certificate renewal, but no VPS has yet been provisioned or tested.
+
 The website manages accounts; it does not supply VPN bandwidth. A Linux host with TUN, NAT, an owned certificate and upstream bandwidth is still required. On that host:
 
 1. Install the project and its locked Python dependencies.
@@ -48,7 +50,7 @@ Web-only restarts preserve active gateway session records. A gateway restart cle
 - Admin/setup URL: https://top-private-plug-admin.onrender.com/admin/
 - Owner environment settings: https://dashboard.render.com/web/srv-dbggmc61egvs73a84s8g/env
 - Service is free, in Frankfurt, linked to the private GitHub repository with automatic deploys.
-- Deployment was created WITHOUT database credentials. The owner must enter connection strings privately in Render. Until then the site is a read-only setup guide, not an operational admin dashboard.
+- Deployment was created WITHOUT database credentials. The owner subsequently entered the connection strings privately in Render; verification below confirms the operational admin dashboard.
 
 ## Owner setup verified
 
