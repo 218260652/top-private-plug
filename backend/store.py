@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS admin_sessions(hash TEXT PRIMARY KEY, expires INTEGER
 CREATE TABLE IF NOT EXISTS profiles(id TEXT PRIMARY KEY, name TEXT NOT NULL, carrier TEXT NOT NULL,
  server TEXT NOT NULL, port INTEGER NOT NULL, sni TEXT NOT NULL, tls_min TEXT NOT NULL,
  enabled INTEGER NOT NULL, version INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS xray_profiles(profile TEXT PRIMARY KEY REFERENCES profiles(id), config TEXT NOT NULL, insecure INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS xray_sessions(account TEXT PRIMARY KEY, profile TEXT NOT NULL, version INTEGER NOT NULL,
+ lease TEXT NOT NULL, seen INTEGER NOT NULL, up INTEGER NOT NULL DEFAULT 0, down INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY, label TEXT NOT NULL, kind TEXT NOT NULL,
  duration INTEGER NOT NULL, quota INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0,
  activated INTEGER, expires INTEGER, key TEXT, suspended INTEGER NOT NULL DEFAULT 0,
@@ -183,6 +186,8 @@ class Store:
             raise Fault('Profile name must contain 1 to 80 characters')
         with self.db() as db:
             if profile_id:
+                if db.execute('SELECT 1 FROM xray_profiles WHERE profile=?', (profile_id,)).fetchone():
+                    raise Fault('Use the Xray import form to replace this profile')
                 row = db.execute('SELECT * FROM profiles WHERE id=?', (profile_id,)).fetchone()
                 if not row:
                     raise Fault('Profile not found', 404)
@@ -197,14 +202,16 @@ class Store:
 
     def profiles(self):
         with self.db() as db:
-            return [dict(r) for r in db.execute('SELECT * FROM profiles ORDER BY name')]
+            from .xray import metadata
+            return metadata(db, [dict(r) for r in db.execute('SELECT * FROM profiles ORDER BY name')])
 
     def get_profile(self, profile_id):
         with self.db() as db:
             row = db.execute('SELECT * FROM profiles WHERE id=?', (profile_id,)).fetchone()
             if not row:
                 raise Fault('Profile not found', 404)
-            return dict(row)
+            from .xray import metadata
+            return metadata(db, [dict(row)])[0]
 
     def issue(self, data):
         if not isinstance(data.get('label'), str) or not 1 <= len(data['label'].strip()) <= 100:
@@ -250,12 +257,16 @@ class Store:
             result = self.view(row)
             session = db.execute('SELECT up,down,started,seen FROM sessions WHERE account=?', (account_id,)).fetchone()
             result['session'] = dict(session) if session and session['seen'] > self.now() - 10 else None
+            imported = db.execute('SELECT up,down,seen FROM xray_sessions WHERE account=? AND seen>?', (account_id, self.now()-30)).fetchone()
+            if imported:
+                result['session'] = dict(imported)
+                result['session']['enforcement'] = 'app-reported'
             result['online'] = result['session'] is not None
             return result
 
     def accounts(self):
         with self.db() as db:
-            return [self.view(r) for r in db.execute('SELECT a.*,s.seen AS last_seen FROM accounts a LEFT JOIN sessions s ON s.account=a.id WHERE a.deleted=0 ORDER BY a.created DESC')]
+            return [self.view(r) for r in db.execute('SELECT a.*,COALESCE(s.seen,x.seen) AS last_seen FROM accounts a LEFT JOIN sessions s ON s.account=a.id LEFT JOIN xray_sessions x ON x.account=a.id WHERE a.deleted=0 ORDER BY a.created DESC')]
 
     @staticmethod
     def validate_key(key):
@@ -341,6 +352,10 @@ class Store:
             profile = db.execute('SELECT * FROM profiles WHERE id=? AND enabled=1', (profile_id,)).fetchone()
             if not profile or profile_id not in json.loads(row['profiles']):
                 raise Fault('This connection profile is unavailable', 403)
+            if db.execute('SELECT 1 FROM xray_profiles WHERE profile=?', (profile_id,)).fetchone():
+                raise Fault('This profile requires the Xray engine')
+            if db.execute('SELECT 1 FROM xray_sessions WHERE account=? AND seen>?', (row['id'], self.now()-30)).fetchone():
+                raise Fault('Account already connected; disconnect first', 409)
             ticket = secrets.token_urlsafe(32)
             db.execute('DELETE FROM tickets WHERE expires<=? OR account=?', (self.now(), row['id']))
             db.execute('INSERT INTO tickets VALUES(?,?,?,?,?)', (digest(ticket), row['id'], profile_id, profile['version'], self.now() + 30))
@@ -477,3 +492,4 @@ class Store:
             for table in ['tokens', 'tickets', 'challenges', 'admin_sessions']:
                 db.execute(f'DELETE FROM {table} WHERE expires<=?', (self.now(),))
             db.execute('DELETE FROM usage WHERE at<?', (self.now() - 31 * 86400,))
+

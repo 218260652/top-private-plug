@@ -24,11 +24,11 @@ function render() {
   $('stat-active').textContent = state.accounts.filter(a => a.status === 'active').length;
   $('stat-pending').textContent = state.accounts.filter(a => a.status === 'pending').length;
   $('stat-data').textContent = gb(state.accounts.reduce((sum, a) => sum + a.used, 0));
-  $('gateway-status').textContent = state.gateway_enabled ? 'TLS listener configured. Confirm live routing and certificate health before selling access.' : 'Gateway not configured. Admin functions work, but VPN connections are unavailable until server setup is complete.';
+  $('gateway-status').textContent = state.gateway_enabled ? 'TLS listener configured. Confirm live routing and certificate health before selling access.' : state.profiles.some(p=>p.engine==='xray'&&p.enabled) ? 'Imported Xray profiles available for the Xray-enabled APK. The supplier server controls connectivity; account controls and usage reporting run in this app.' : 'No gateway or enabled imported profile is configured yet.';
   const checked = [...document.querySelectorAll('[name="profile_ids"]:checked')].map(e => e.value);
   $('profile-choices').innerHTML = state.profiles.filter(p=>p.enabled).map(p=>`<label class="check"><input type="checkbox" name="profile_ids" value="${escape(p.id)}" ${checked.includes(p.id)?'checked':''}>${escape(p.name)} · ${escape(p.carrier)}</label>`).join('') || '<p class="muted">Create an enabled connection profile first.</p>';
   renderAccounts();
-  $('profile-list').innerHTML = state.profiles.map(p=>`<div class="profile-row"><div class="row-top"><strong>${escape(p.name)}</strong><span class="tag">${escape(p.carrier)} · v${p.version}</span></div><p>${escape(p.server)}:${p.port} · ${p.enabled?'Enabled':'Disabled'}</p><p>SNI ${escape(p.sni)} · TLS ${escape(p.tls_min)}+</p><div class="row-actions"><button data-edit-profile="${escape(p.id)}">Edit profile</button></div></div>`).join('') || '<p>No profiles yet.</p>';
+  $('profile-list').innerHTML = state.profiles.map(p=>`<div class="profile-row"><div class="row-top"><strong>${escape(p.name)}</strong><span class="tag">${escape(p.carrier)} · v${p.version}</span></div><p>${escape(p.server)}:${p.port} · ${p.enabled?'Enabled':'Disabled'}</p><p>${p.engine==='xray'?'Trojan / Xray · app controls':'TPP / gateway controls'} · SNI ${escape(p.sni)} · ${p.insecure_tls?'Unverified TLS — test only':'TLS certificate checks enabled'}</p><div class="row-actions"><button data-edit-profile="${escape(p.id)}">Edit profile</button>${p.engine==='xray'?`<button data-toggle-xray="${escape(p.id)}">${p.enabled?'Disable':'Enable'}</button>`:''}</div></div>`).join('') || '<p>No profiles yet.</p>';
   $('audit-list').innerHTML = state.audit.map(a=>`<div class="audit-row"><strong>${escape(a.action.replaceAll('_',' '))}</strong><p class="muted">${escape(date(a.at))} · ${escape(a.subject.slice(0,8))} ${escape(a.detail)}</p></div>`).join('') || '<p>No events yet.</p>';
 }
 function renderAccounts() {
@@ -50,7 +50,8 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
  if(b.dataset.view)view(b.dataset.view);
  if(b.dataset.days){$('code-form').elements.duration.value=b.dataset.days;$('code-form').elements.unit.value='86400';$('code-form').elements.kind.value='paid';}
  if(b.dataset.hours){$('code-form').elements.duration.value=b.dataset.hours;$('code-form').elements.unit.value='3600';$('code-form').elements.kind.value='trial';}
- if(b.dataset.editProfile){const p=state.profiles.find(p=>p.id===b.dataset.editProfile),f=$('profile-form');for(const k of ['id','name','carrier','server','port','sni','tls_min'])f.elements[k].value=p[k];f.elements.enabled.checked=!!p.enabled;$('profile-title').textContent='Edit connection profile';f.scrollIntoView({behavior:'smooth'});}
+ if(b.dataset.editProfile){const p=state.profiles.find(p=>p.id===b.dataset.editProfile);if(p.engine==='xray'){const f=$('xray-form');f.reset();f.elements.id.value=p.id;f.elements.name.value=p.name;f.elements.carrier.value=p.carrier;f.elements.enabled.checked=!!p.enabled;f.elements.allow_insecure.checked=!!p.insecure_tls;$('xray-title').textContent='Replace imported profile';notice('Paste the complete JSON again to replace this imported profile. Stored passwords are not returned to the browser.');f.scrollIntoView({behavior:'smooth'});return;}const f=$('profile-form');for(const k of ['id','name','carrier','server','port','sni','tls_min'])f.elements[k].value=p[k];f.elements.enabled.checked=!!p.enabled;$('profile-title').textContent='Edit connection profile';f.scrollIntoView({behavior:'smooth'});}
+ if(b.dataset.toggleXray){const p=state.profiles.find(p=>p.id===b.dataset.toggleXray);await api('xray-profiles/'+p.id,'PATCH',{enabled:!p.enabled});await refresh();}
  if(b.dataset.editAccount){const a=state.accounts.find(a=>a.id===b.dataset.editAccount),f=$('edit-form');f.reset();f.elements.id.value=a.id;f.elements.label.value=a.label;f.elements.quota.value=a.quota/1e9;f.elements.duration_hours.value=a.duration/3600;f.elements.suspended.checked=!!a.suspended;$('edit-dialog').showModal();}
  if(b.dataset.suspend){const a=state.accounts.find(a=>a.id===b.dataset.suspend);await api('accounts/'+a.id,'PATCH',{suspended:!a.suspended});await refresh();}
  if(b.dataset.delete&&confirm('Delete this account and revoke its access? This cannot be undone.')){await api('accounts/'+b.dataset.delete,'DELETE');await refresh();}
@@ -69,3 +70,7 @@ async function initialize() {
 }
 view(currentView);initialize();
 setInterval(()=>{if(!$('workspace').hidden)refresh().catch(e=>notice(e.message));},30000);
+
+
+$('xray-form').addEventListener('submit',e=>{e.preventDefault();const f=e.target;busy(f,async()=>{const d=new FormData(f),id=d.get('id');await api('xray-profiles'+(id?'/'+id:''),id?'PUT':'POST',{name:d.get('name'),carrier:d.get('carrier'),config:d.get('config'),allow_insecure:d.has('allow_insecure'),enabled:d.has('enabled')});f.reset();f.elements.id.value='';$('xray-title').textContent='Import Xray / Trojan JSON';await refresh();notice('Imported. Assign this profile to an account and use the Xray-enabled APK.');});});
+$('xray-reset').onclick=()=>{$('xray-form').reset();$('xray-form').elements.id.value='';$('xray-title').textContent='Import Xray / Trojan JSON';};

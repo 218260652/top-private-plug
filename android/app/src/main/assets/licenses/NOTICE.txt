@@ -1,0 +1,3 @@
+Top private Plug includes AndroidLibXrayLite (LGPL-3.0), revision 76a6e2172210613fcb4aa32b6de55bcd9452ce43, and Xray-core (MPL-2.0).
+Library source: https://github.com/2dust/AndroidLibXrayLite/tree/76a6e2172210613fcb4aa32b6de55bcd9452ce43
+Application source and rebuild instructions accompany the pilot build. Library modifications and reverse engineering for debugging such modifications are permitted under the applicable licenses.
