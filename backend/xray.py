@@ -98,7 +98,9 @@ def normalize(raw, allow_insecure=False):
         raise Fault('Incomplete Trojan or upstream settings') from None
     outbounds.extend([{'tag': 'dns-out', 'protocol': 'dns'}, {'tag': 'block', 'protocol': 'blackhole'}])
     config = {'log': {'loglevel': 'none'}, 'dns': {'servers': dns, 'queryStrategy': 'UseIPv4', 'tag': 'dns-in'},
-        'inbounds': [{'tag': 'tun-inbound', 'protocol': 'tun', 'settings': {'mtu': 1400}}],
+        # Android supplies the descriptor. A nonempty name prevents Xray's
+        # desktop auto-name path from calling net.Interfaces(), denied by Android.
+        'inbounds': [{'tag': 'tun-inbound', 'protocol': 'tun', 'settings': {'name': 'tpp0', 'mtu': 1400}}],
         'outbounds': outbounds, 'stats': {},
         'policy': {'system': {'statsOutboundUplink': True, 'statsOutboundDownlink': True}},
         'routing': {'domainStrategy': 'AsIs', 'rules': [

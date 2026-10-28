@@ -48,13 +48,20 @@ public final class MainActivity extends Activity {
     private String lastError = "";
     private boolean busy, visible;
     private int graphHours = 1;
+    private long nextAccountRefresh;
+    private String renderedTunnelState = "", renderedTunnelDetail = "";
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (!visible) return;
-            if (!busy && !vault.token().isEmpty()) refresh();
-            handler.postDelayed(this, "Connected".equals(TunnelService.state) ? 5000 : 15000);
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (!busy && !vault.token().isEmpty() && now >= nextAccountRefresh) {
+                nextAccountRefresh = now + ("Connected".equals(TunnelService.state) ? 10000 : 20000);
+                refresh();
+            }
+            if (!renderedTunnelState.equals(TunnelService.state) || !renderedTunnelDetail.equals(TunnelService.detail)) render();
+            handler.postDelayed(this, 1000);
         }
     };
     @Override public void onCreate(Bundle state) {
@@ -80,6 +87,7 @@ public final class MainActivity extends Activity {
     Button button(String label, boolean primary, View.OnClickListener click) { Button b=new Button(this);b.setText(label);b.setTextSize(14);b.setTextColor(primary?BG:TEXT);b.setAllCaps(false);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);b.setMinHeight(dp(53));b.setPadding(dp(14),dp(8),dp(14),dp(8));b.setBackground(shape(primary?CYAN:0xff102b43,primary?0:LINE,16));b.setOnClickListener(click);b.setEnabled(!busy);return b; }
     void render() {
         if (isFinishing()) return;
+        renderedTunnelState = TunnelService.state; renderedTunnelDetail = TunnelService.detail;
         root.removeAllViews();
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
         ImageView icon=new ImageView(this);icon.setImageResource(R.drawable.ic_launcher);icon.setContentDescription("Top private Plug shield");header.addView(icon,new LinearLayout.LayoutParams(dp(40),dp(40)));
@@ -101,8 +109,8 @@ public final class MainActivity extends Activity {
         for(String item:new String[]{"MTN","Telkom","Cell C"}){Button b=button(item,false,v->{if(!TunnelService.state.equals("Disconnected")){message("Disconnect before changing the network.");return;}carrier=item;selectedProfile="";render();});b.setTextColor(item.equals(carrier)?CYAN:MUTED);if(item.equals(carrier))b.setBackground(shape(0xff0c3546,CYAN,16));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(49),1);p.setMargins(dp(3),0,dp(3),0);networks.addView(b,p);}add(content,networks,20);
         LinearLayout connection=card();TextView state=text(TunnelService.state,21,TEXT,true);state.setGravity(Gravity.CENTER);add(connection,state,8);
         TextView hint=text(TunnelService.detail.isEmpty()?"Your private connection, one tap away.":TunnelService.detail,12,MUTED,false);hint.setGravity(Gravity.CENTER);add(connection,hint,22);
-        TextView power=text("⏻",78,"Connected".equals(TunnelService.state)?MINT:CYAN,false);power.setGravity(Gravity.CENTER);power.setContentDescription("Connected".equals(TunnelService.state)?"Disconnect VPN":"Connect VPN");power.setBackground(shape(0xff0d414c,"Connected".equals(TunnelService.state)?MINT:CYAN,100));LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(dp(150),dp(150));pp.gravity=Gravity.CENTER;pp.bottomMargin=dp(14);connection.addView(power,pp);power.setOnClickListener(v->toggle());
-        TextView action=text("Connected".equals(TunnelService.state)?"Tap to disconnect":busy?"Please wait…":"Tap to connect",15,TEXT,true);action.setGravity(Gravity.CENTER);add(connection,action,8);
+        TextView power=text("Connected".equals(TunnelService.state)?"STOP":"Connecting".equals(TunnelService.state)?"CANCEL":"CONNECT",18,"Connected".equals(TunnelService.state)?MINT:CYAN,false);power.setGravity(Gravity.CENTER);power.setContentDescription("Connected".equals(TunnelService.state)?"Disconnect VPN":"Connect VPN");power.setBackground(shape(0xff0d414c,"Connected".equals(TunnelService.state)?MINT:CYAN,100));LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(dp(150),dp(150));pp.gravity=Gravity.CENTER;pp.bottomMargin=dp(14);connection.addView(power,pp);power.setOnClickListener(v->toggle());
+        TextView action=text("Connected".equals(TunnelService.state)?"Tap to disconnect":"Connecting".equals(TunnelService.state)?"Tap to cancel":"Tap to connect",15,TEXT,true);action.setGravity(Gravity.CENTER);add(connection,action,8);
         JSONArray available=carrierProfiles();
         if(available.length()==0)add(connection,text("No enabled "+carrier+" profile is assigned. Ask your service admin.",12,MUTED,false),0);
         else if(available.length()>1){String[] names=new String[available.length()];for(int i=0;i<names.length;i++)names[i]=available.optJSONObject(i).optString("name");add(connection,button("Choose connection profile",false,v->new AlertDialog.Builder(this).setTitle("Connection profile").setItems(names,(d,n)->{selectedProfile=available.optJSONObject(n).optString("id");message(names[n]+" selected.");}).show()),0);}
@@ -134,7 +142,7 @@ public final class MainActivity extends Activity {
     }
     void usage() {
         add(content,text("Usage",28,TEXT,true),20);planCard();
-        LinearLayout c=card();add(c,text("This connection",18,TEXT,true),15);add(c,text("↑ Upload    "+bytes(TunnelService.uploaded)+"\n↓ Download    "+bytes(TunnelService.downloaded),18,CYAN,true),12);add(c,text("Live counters reset on reconnect. TPP quota is gateway measured; imported Xray usage is app reported.",12,MUTED,false),0);
+        LinearLayout c=card();add(c,text("This connection",18,TEXT,true),15);add(c,text("↑ Upload    "+bytes(TunnelService.uploaded)+"\n↓ Download    "+bytes(TunnelService.downloaded),18,CYAN,true),12);add(c,text("Live counters reset on reconnect. Usage is reported by this app to your account service.",12,MUTED,false),0);
         add(content,text("Server data history",19,TEXT,true),12);LinearLayout controls=new LinearLayout(this);
         for(int hours:new int[]{1,6,24}){Button b=button(hours+"H",hours==graphHours,v->{graphHours=hours;loadGraph();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(48),1);p.setMargins(dp(4),0,dp(4),0);controls.addView(b,p);}add(content,controls,15);add(content,new UsageGraph(),20);
     }
@@ -144,14 +152,14 @@ public final class MainActivity extends Activity {
     }
     void settings() {
         add(content,text("Settings",28,TEXT,true),20);LinearLayout c=card();add(c,text("Service address",16,TEXT,true),6);add(c,text(vault.endpoint().isEmpty()?"Not configured":vault.endpoint(),13,MUTED,false),14);add(c,button("Change service address",false,v->endpointDialog()),0);
-        c=card();add(c,text("Connection security",18,TEXT,true),12);add(c,text("TLS 1.2 / 1.3 encryption\nCertificate checks depend on the selected profile\nDevice keys kept in Android Keystore\nGateway or app controls depend on the selected profile",14,MUTED,false),10);add(c,text("SNI, host and port are managed by your admin. Profile updates require reconnecting.",12,MUTED,false),0);
+        c=card();add(c,text("Connection security",18,TEXT,true),12);add(c,text("TLS 1.2 / 1.3 encryption\nCertificate checks depend on the selected profile\nDevice keys kept in Android Keystore\nAccount limits checked with the service",14,MUTED,false),10);add(c,text("Connection settings come only from your admin’s imported profile. Profile updates require reconnecting.",12,MUTED,false),0);
         c=card();add(c,text("Open-source engine",18,TEXT,true),12);add(c,text("AndroidLibXrayLite · LGPL-3.0\nXray-core · MPL-2.0",14,MUTED,false),10);
         add(c,button("Engine notices and licenses",false,v->showLicenses()),0);
-        c=card();add(c,text("Privacy & service",18,TEXT,true),12);add(c,text("Your service stores your activation time, device public key, access status and upload/download byte totals. This app does not request contacts, location or media access.\n\nTPP carries IPv4 and blocks IPv6; Xray profiles route both through the tunnel. MTN, Telkom and Cell C labels do not guarantee network compatibility or provide mobile data. An existing internet connection is required.\n\nDisconnecting or a failed connection restores your normal network. Always-on VPN and a kill switch are not included in this pilot.",13,MUTED,false),0);
+        c=card();add(c,text("Privacy & service",18,TEXT,true),12);add(c,text("Your service stores your activation time, device public key, access status and upload/download byte totals. This app does not request contacts, location or media access.\n\nImported profiles route IPv4 and IPv6 through the tunnel. MTN, Telkom and Cell C labels do not guarantee network compatibility or provide mobile data. An existing internet connection is required.\n\nDisconnecting or a failed connection restores your normal network. Always-on VPN and a kill switch are not included in this pilot.",13,MUTED,false),0);
         add(content,button("Activate / recover access",false,v->codeDialog(false)),15);
         add(content,button("WhatsApp: "+PurchaseRequest.DISPLAY_PHONE,false,v->purchaseDialog(account!=null)),15);
         add(content,button("Forget access on this phone",false,v->new AlertDialog.Builder(this).setTitle("Forget access?").setMessage("This removes the local login. Your subscription keeps its original expiry. You can recover it with the same code on this installation.").setPositiveButton("Forget",(d,n)->{stopService(new Intent(this,TunnelService.class));try{vault.token("");}catch(Exception ignored){}account=null;profiles=new JSONArray();tab="Home";render();}).setNegativeButton("Cancel",null).show()),20);
-        add(content,text("Top private Plug · 0.1.3 pilot\nTPP/1 and Trojan / Xray support",11,MUTED,false),20);
+        add(content,text("Top private Plug · 0.1.4 pilot\nImported Trojan / Xray profiles",11,MUTED,false),20);
     }
     void purchaseDialog(boolean topUp) {
         String[] options={"7 days", "15 days", "30 days", "Custom duration or data top-up"};
@@ -178,10 +186,10 @@ public final class MainActivity extends Activity {
             new AlertDialog.Builder(this).setTitle("Engine licenses").setView(scroll).setPositiveButton("Close",null).show();
         } catch(Exception error) { message("License texts are included in the APK assets."); }
     }
-    JSONArray carrierProfiles() { JSONArray list=new JSONArray();for(int i=0;i<profiles.length();i++){JSONObject p=profiles.optJSONObject(i);if(p!=null&&(carrier.equals(p.optString("carrier"))||"Any".equals(p.optString("carrier"))))list.put(p);}return list; }
+    JSONArray carrierProfiles() { JSONArray list=new JSONArray();for(int i=0;i<profiles.length();i++){JSONObject p=profiles.optJSONObject(i);if(p!=null&&"xray".equals(p.optString("engine"))&&(carrier.equals(p.optString("carrier"))||"Any".equals(p.optString("carrier"))))list.put(p);}return list; }
     void toggle() {
-        if(busy)return;
         if(!"Disconnected".equals(TunnelService.state)){startService(new Intent(this,TunnelService.class).setAction("STOP"));handler.postDelayed(this::render,300);return;}
+        if(busy)return;
         if(account==null||!account.optString("status").equals("active")){message("Activate an account with available time and data first.");return;}
         JSONArray available=carrierProfiles();if(available.length()==0){message("No assigned profile for "+carrier+".");return;}
         boolean found=false;for(int i=0;i<available.length();i++)if(available.optJSONObject(i).optString("id").equals(selectedProfile))found=true;
@@ -208,7 +216,7 @@ public final class MainActivity extends Activity {
     }
     interface Work { void run() throws Exception; }
     void runNetwork(Work work) { runNetwork(work,false); }
-    void runNetwork(Work work,boolean quiet) { if(busy)return;busy=true;network.execute(()->{try{work.run();handler.post(()->lastError="");}catch(Exception error){handler.post(()->{if(quiet)lastError="Unable to refresh account. Check your connection or service address.";else message(error.getMessage()==null?"Connection failed.":error.getMessage());});}finally{handler.post(()->{busy=false;if(visible)render();});}}); }
+    void runNetwork(Work work,boolean quiet) { if(busy)return;busy=true;network.execute(()->{try{work.run();handler.post(()->lastError="");}catch(Exception error){handler.post(()->{if(quiet)lastError="Account refresh failed: "+(error.getMessage()==null?"check your internet connection.":error.getMessage());else message(error.getMessage()==null?"Connection failed.":error.getMessage());});}finally{handler.post(()->{busy=false;if(visible)render();});}}); }
     void chooseCarrier() { if(profiles==null)profiles=new JSONArray();if(carrierProfiles().length()==0&&profiles.length()>0)carrier=profiles.optJSONObject(0).optString("carrier","MTN"); }
     void refresh() { runNetwork(()->{JSONObject a=api.request("/v1/status",null,true);JSONArray p=api.request("/v1/profiles",null,true).getJSONArray("profiles");JSONArray history=tab.equals("Usage")?api.request("/v1/usage?hours="+graphHours,null,true).getJSONArray("points"):null;handler.post(()->{account=a;profiles=p;if(history!=null)points=history;chooseCarrier();render();});},true); }
     void loadGraph() { if(vault.token().isEmpty())return;runNetwork(()->{JSONArray data=api.request("/v1/usage?hours="+graphHours,null,true).getJSONArray("points");handler.post(()->{points=data;render();});}); }
@@ -226,4 +234,5 @@ public final class MainActivity extends Activity {
         @Override public void setAlpha(int a){}@Override public void setColorFilter(android.graphics.ColorFilter f){}@Override public int getOpacity(){return android.graphics.PixelFormat.OPAQUE;}
     }
 }
+
 

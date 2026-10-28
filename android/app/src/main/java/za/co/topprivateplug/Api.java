@@ -16,10 +16,10 @@ final class Api {
         URL url = new URL(endpoint + path);
         if (!"https".equals(url.getProtocol())) throw new Exception("The service address must use HTTPS.");
         HttpsURLConnection connection = (HttpsURLConnection)url.openConnection();
-        connection.setConnectTimeout(12000); connection.setReadTimeout(15000);
+        connection.setConnectTimeout(12000); connection.setReadTimeout(45000);
         connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("X-TPP-Engines", "tpp,xray");
+        connection.setRequestProperty("X-TPP-Engines", "xray");
         if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + vault.token());
         try {
             if (data != null) {
@@ -53,4 +53,5 @@ final class Api {
     }
     JSONObject connect(String profile) throws Exception { return request("/v1/connect", proof("connect").put("profile_id", profile), true); }
 }
+
 

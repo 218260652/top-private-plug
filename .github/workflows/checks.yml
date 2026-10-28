@@ -61,6 +61,13 @@ jobs:
           cache-dependency-path: .xray-source/go.sum
       - name: Build native Xray engine
         run: bash tools/build_xray.sh
+      - name: Reproduce Android interface permission restriction
+        run: |
+          if ! command -v strace >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y strace
+          fi
+          python tools/verify_android_tun.py --source .xray-source
       - name: Build and verify debug-signed pilot
         run: python tools/build_android.py --sdk "$ANDROID_HOME"
       - name: Package rebuild sources and licenses
@@ -76,4 +83,5 @@ jobs:
             Top-private-Plug-rebuild-source.tar.gz
           if-no-files-found: error
           retention-days: 7
+
 

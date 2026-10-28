@@ -5,14 +5,12 @@ import json
 import logging
 import os
 import sqlite3
-import ssl
 import time
 from collections import OrderedDict, deque
 from pathlib import Path
 
 from aiohttp import web
 
-from .gateway import Gateway
 from .store import Fault, Store
 from . import xray
 
@@ -89,7 +87,7 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
         return header[7:]
 
     async def health(request):
-        return web.json_response({'status': 'ok', 'gateway_enabled': gateway_enabled, 'protocol': 'TPP/1'})
+        return web.json_response({'status': 'ok', 'gateway_enabled': False, 'protocol': 'Trojan/Xray', 'connection_method': 'imported-profile'})
 
     async def setup_status(request):
         return web.json_response({'setup_required': not store.has_admin()})
@@ -110,11 +108,17 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
 
     async def admin_state(request):
         accounts = store.accounts()
-        return web.json_response({'accounts': accounts, 'profiles': store.profiles(), 'audit': store.audit_list(),
-                                  'gateway_enabled': gateway_enabled, 'server_time': store.now()})
+        return web.json_response({'accounts': accounts, 'profiles': [p for p in store.profiles() if p['engine'] == 'xray'], 'audit': store.audit_list(),
+                                  'connection_method': 'imported-profile', 'gateway_enabled': False, 'server_time': store.now()})
 
     async def issue(request):
-        return web.json_response(store.issue(await body(request)), status=201)
+        data = await body(request)
+        selected = data.get('profile_ids')
+        if not isinstance(selected, list) or not selected or any(not isinstance(pid, str) for pid in selected):
+            raise Fault('Choose at least one imported connection profile')
+        if any(store.get_profile(pid).get('engine') != 'xray' for pid in selected):
+            raise Fault('Only imported connection profiles can be assigned')
+        return web.json_response(store.issue(data), status=201)
 
     async def account_update(request):
         return web.json_response(store.update_account(request.match_info['id'], await body(request)))
@@ -124,7 +128,7 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
         return web.json_response({'ok': True})
 
     async def profile_save(request):
-        return web.json_response(store.save_profile(await body(request), request.match_info.get('id')))
+        raise Fault('Manual server/SNI profiles have been removed. Import your unlocked connection JSON instead.', 410)
 
     async def xray_import(request):
         return web.json_response(xray.save(store, await body(request), request.match_info.get('id')))
@@ -154,17 +158,17 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     async def profiles(request):
         account = store.client_auth(token(request))
         engines = request.headers.get('X-TPP-Engines', 'tpp').split(',')
-        return web.json_response({'profiles': [p for p in store.profiles() if p['id'] in json.loads(account['profiles']) and p['enabled'] and p['engine'] in engines]})
+        return web.json_response({'profiles': [p for p in store.profiles() if p['id'] in json.loads(account['profiles']) and p['enabled'] and p['engine'] == 'xray' and 'xray' in engines]})
 
     async def connect(request):
+        store.client_auth(token(request))
         data = await body(request)
-        if isinstance(data.get('profile_id'), str):
-            profile = store.get_profile(data['profile_id'])
-            if profile.get('engine') == 'xray':
-                return web.json_response(xray.connect(store, token(request), data))
-        if not gateway_enabled:
-            raise Fault('VPN gateway is not configured yet', 503)
-        return web.json_response(store.connect(token(request), data))
+        if not isinstance(data.get('profile_id'), str):
+            raise Fault('Choose an imported connection profile')
+        profile = store.get_profile(data['profile_id'])
+        if profile.get('engine') != 'xray':
+            raise Fault('Manual server/SNI connections have been removed. Ask your admin to assign an imported profile.', 410)
+        return web.json_response(xray.connect(store, token(request), data))
 
     async def usage(request):
         account = store.client_auth(token(request))
@@ -234,8 +238,6 @@ async def main():
     bootstrap_password = os.environ.get('TPP_BOOTSTRAP_PASSWORD', '')
     if bootstrap_password and not store.has_admin():
         store.bootstrap('admin', bootstrap_password)
-    cert, key = os.environ.get('TPP_TLS_CERT', ''), os.environ.get('TPP_TLS_KEY', '')
-    enabled = bool(cert and key)
     local_dev = os.environ.get('TPP_LOCAL_DEV') == '1'
     origin = os.environ.get('TPP_PUBLIC_ORIGIN') or os.environ.get('RENDER_EXTERNAL_URL', '')
     bind = os.environ.get('TPP_HTTP_BIND', '0.0.0.0' if os.environ.get('RENDER_EXTERNAL_URL') else '127.0.0.1')
@@ -243,31 +245,22 @@ async def main():
         raise SystemExit('Local HTTP development mode must bind to loopback')
     if not local_dev and not origin.startswith('https://'):
         raise SystemExit('Set TPP_PUBLIC_ORIGIN to your public HTTPS origin')
-    gateway = Gateway(store)
-    if enabled:
-        await gateway.start(os.environ.get('TPP_GATEWAY_BIND', '0.0.0.0'), int(os.environ.get('TPP_GATEWAY_PORT', '443')), cert, key)
     app = create_app(store, origin or 'http://127.0.0.1:8080',
-                     secure_cookies=os.environ.get('TPP_LOCAL_DEV') != '1',
-                     gateway_enabled=enabled or os.environ.get('TPP_REMOTE_GATEWAY') == '1')
+                     secure_cookies=os.environ.get('TPP_LOCAL_DEV') != '1')
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     await web.TCPSite(runner, bind, int(os.environ.get('TPP_HTTP_PORT') or os.environ.get('PORT', '8080'))).start()
-    print('Top private Plug API ready; gateway=' + str(enabled), flush=True)
+    print('Top private Plug API ready; imported profiles only', flush=True)
     try:
         while True:
             await asyncio.sleep(60)
             store.maintenance()
-            if enabled:
-                try:
-                    gateway.context.load_cert_chain(cert, key)
-                except (OSError, ssl.SSLError):
-                    logging.error('TLS certificate reload failed; existing certificate remains active')
     finally:
-        await gateway.close()
         await runner.cleanup()
         store.close()
 
 
 if __name__ == '__main__':
     asyncio.run(main())
+
 

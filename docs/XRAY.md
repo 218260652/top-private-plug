@@ -1,6 +1,6 @@
-# Trojan import pilot
+# Imported connection pilot — 0.1.4
 
-The admin accepts unlocked Trojan-over-TCP/TLS Xray JSON in Connection profiles. It rebuilds an Android TUN configuration, preserves an optional HTTP upstream and literal DNS servers, and strips arbitrary listeners, API, file paths and unsupported global options. NetMod encrypted links are not accepted.
+This is the only connection method offered by the active admin, API and app. There is no manual custom-SNI form. The admin accepts unlocked Trojan-over-TCP/TLS Xray JSON in Connection profiles. It rebuilds an Android TUN configuration, preserves an optional HTTP upstream and literal DNS servers, and strips arbitrary listeners, API, file paths and unsupported global options. NetMod encrypted links are not accepted.
 
 Imported `tcp+local://` DNS addresses are converted to `tcp://` with the same resolver. Local-mode DNS bypasses Xray routing; the converted queries follow the `dns-in` rule through the Trojan outbound. Existing stored profiles are rebuilt when connecting, so they receive this correction without reimporting. This covers DNS handled by the core; resolving the upstream server hostname and the app's direct account API requests still use the underlying network. Physical-device DNS leak tests remain required.
 
@@ -20,5 +20,11 @@ Use JDK 17, Android SDK platform/build-tools 35 and Go matching the pinned engin
 4. Suspend, expire, exhaust the trial or replace its profile; the unmodified app must disconnect on the next account check. Disconnect API reachability must fail closed within 30 seconds.
 5. Verify IPv4/IPv6 and each intended carrier from actual phones. CI does not prove carrier compatibility or third-party server uptime.
 
-Older APKs do not advertise Xray support and are not shown imported profiles. TPP behavior stays available. No live Oracle gateway or live carrier test has been established by this change.
+Older APKs without Xray support do not receive imported profiles. The active API rejects manual TPP connections, and the new Android app contains only the imported-profile path. Historical database records are preserved. No live carrier test is established by this change.
 
+
+## Android startup regression
+
+The pinned Xray `infra/conf/tun.go` calls `net.Interfaces()` when the TUN settings have no name. Android denies that interface enumeration. Normalized configs now set `name: tpp0`, and the Android client sets it defensively before starting the core. The Android TUN implementation uses the file descriptor from `VpnService`; the name does not create a second interface. No auto interface selection, system route manipulation or root access is enabled.
+
+CI runs `python tools/verify_android_tun.py --source .xray-source` against the exact pinned dependency. The harness denies socket system calls, verifies that the generated named config parses, and checks that an unnamed control reproduces the interface-permission failure. This is a native configuration regression, not a physical-device routing test.
