@@ -90,6 +90,10 @@ def normalize(raw, allow_insecure=False):
                 ipaddress.ip_address(address_value.removeprefix('tcp+local://').removeprefix('tcp://'))
             except ValueError:
                 raise Fault('DNS servers must be literal IP addresses, optionally with tcp:// or tcp+local://') from None
+        # Local-mode DNS bypasses Xray routing. Keep the resolver and TCP transport,
+        # but dispatch queries through dns-in and the Trojan outbound instead.
+        dns = ['tcp://' + value[len('tcp+local://'):] if value.startswith('tcp+local://') else value
+               for value in dns]
     except (KeyError, IndexError, TypeError, AttributeError):
         raise Fault('Incomplete Trojan or upstream settings') from None
     outbounds.extend([{'tag': 'dns-out', 'protocol': 'dns'}, {'tag': 'block', 'protocol': 'blackhole'}])
@@ -151,6 +155,9 @@ def connect(store, token, data):
         x = db.execute('SELECT config,insecure FROM xray_profiles WHERE profile=?', (p['id'],)).fetchone()
         if not x:
             raise Fault('Imported profile not found', 404)
+        # Rebuild stored imports too: profiles saved before DNS normalization must
+        # receive the same routing protections without an owner reimport.
+        config = normalize(json.loads(x['config']), allow_insecure=bool(x['insecure']))[0]
         active = db.execute('SELECT 1 FROM sessions WHERE account=? AND seen>?', (row['id'], store.now()-30)).fetchone()
         active_x = db.execute('SELECT 1 FROM xray_sessions WHERE account=? AND seen>?', (row['id'], store.now()-30)).fetchone()
         if active or active_x:
@@ -161,7 +168,7 @@ def connect(store, token, data):
         db.execute('INSERT INTO xray_sessions(account,profile,version,lease,seen,up,down) VALUES(?,?,?,?,?,0,0)',
             (row['id'], p['id'], p['version'], digest(lease), store.now()))
         profile = metadata(db, [dict(p)])[0]
-    return {'engine': 'xray', 'profile': profile, 'config': json.loads(x['config']), 'lease': lease, 'lease_seconds': 30}
+    return {'engine': 'xray', 'profile': profile, 'config': config, 'lease': lease, 'lease_seconds': 30}
 
 
 def heartbeat(store, token, data):
@@ -215,3 +222,4 @@ def toggle(store, profile_id, data):
         db.execute('UPDATE profiles SET enabled=?,version=version+1 WHERE id=?', (int(data['enabled']), profile_id))
         store.audit(db, 'xray_profile_enabled' if data['enabled'] else 'xray_profile_disabled', profile_id)
     return store.get_profile(profile_id)
+
