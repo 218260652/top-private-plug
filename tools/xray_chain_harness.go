@@ -45,6 +45,8 @@ func main() {
         fmt.Fprint(w, "through-vless")
     })); defer origin.Close()
     roots := x509.NewCertPool(); roots.AddCert(origin.Certificate())
+    _, originPortText, err := net.SplitHostPort(strings.TrimPrefix(origin.URL, "https://")); if err != nil { panic(err) }
+    originPort, err := strconv.Atoi(originPortText); if err != nil { panic(err) }
 
     key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader); if err != nil { panic(err) }
     cert := &x509.Certificate{SerialNumber: big.NewInt(17), DNSNames: []string{"fixture.invalid"},
@@ -63,7 +65,10 @@ func main() {
             "settings": object{"clients": []object{{"id": "00000000-0000-4000-8000-000000000001"}}, "decryption": "none"},
             "streamSettings": object{"network": "tcp", "security": "tls", "tlsSettings": object{"certificates": []object{{
                 "certificate": strings.Split(certPEM, "\n"), "key": strings.Split(keyPEM, "\n")}}}}}},
-        "outbounds": []object{{"protocol": "freedom"}},
+        // The current core blocks private destinations from proxy inbounds by default.
+        // Permit only this fixture's exact loopback origin; do not change app policy.
+        "outbounds": []object{{"protocol": "freedom", "settings": object{"finalRules": []object{{
+            "action": "allow", "ip": []string{"127.0.0.1/32"}, "port": originPort}}}}},
     }); defer server.Close()
 
     var reject atomic.Bool
