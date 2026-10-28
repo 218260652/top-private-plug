@@ -14,6 +14,7 @@ from aiohttp import web
 
 from .gateway import Gateway
 from .store import Fault, Store
+from . import xray
 
 
 class Limiter:
@@ -125,6 +126,12 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     async def profile_save(request):
         return web.json_response(store.save_profile(await body(request), request.match_info.get('id')))
 
+    async def xray_import(request):
+        return web.json_response(xray.save(store, await body(request), request.match_info.get('id')))
+
+    async def xray_heartbeat(request):
+        return web.json_response(xray.heartbeat(store, token(request), await body(request)))
+
     async def challenge(request):
         limiter.check(('challenge', peer(request)), 30)
         data = await body(request)
@@ -140,12 +147,18 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
 
     async def profiles(request):
         account = store.client_auth(token(request))
-        return web.json_response({'profiles': [p for p in store.profiles() if p['id'] in json.loads(account['profiles']) and p['enabled']]})
+        engines = request.headers.get('X-TPP-Engines', 'tpp').split(',')
+        return web.json_response({'profiles': [p for p in store.profiles() if p['id'] in json.loads(account['profiles']) and p['enabled'] and p['engine'] in engines]})
 
     async def connect(request):
+        data = await body(request)
+        if isinstance(data.get('profile_id'), str):
+            profile = store.get_profile(data['profile_id'])
+            if profile.get('engine') == 'xray':
+                return web.json_response(xray.connect(store, token(request), data))
         if not gateway_enabled:
             raise Fault('VPN gateway is not configured yet', 503)
-        return web.json_response(store.connect(token(request), await body(request)))
+        return web.json_response(store.connect(token(request), data))
 
     async def usage(request):
         account = store.client_auth(token(request))
@@ -159,6 +172,7 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
         with store.db() as db:
             db.execute('DELETE FROM sessions WHERE account=?', (account['id'],))
             db.execute('DELETE FROM tickets WHERE account=?', (account['id'],))
+            db.execute('DELETE FROM xray_sessions WHERE account=?', (account['id'],))
         return web.json_response({'ok': True})
 
     async def index(request):
@@ -182,6 +196,9 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     app.router.add_delete('/admin/api/accounts/{id}', account_delete)
     app.router.add_post('/admin/api/profiles', profile_save)
     app.router.add_put('/admin/api/profiles/{id}', profile_save)
+    app.router.add_post('/admin/api/xray-profiles', xray_import)
+    app.router.add_put('/admin/api/xray-profiles/{id}', xray_import)
+    app.router.add_post('/v1/xray/heartbeat', xray_heartbeat)
     app.router.add_post('/v1/challenge', challenge)
     app.router.add_post('/v1/activate', activate)
     app.router.add_get('/v1/status', status)
@@ -245,3 +262,4 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+

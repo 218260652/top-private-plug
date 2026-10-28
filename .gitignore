@@ -18,3 +18,7 @@ test-output/
 
 # Only reviewed pilot downloads are intentionally tracked.
 !downloads/*.apk
+
+
+.xray-source/
+android/app/libs/*.aar

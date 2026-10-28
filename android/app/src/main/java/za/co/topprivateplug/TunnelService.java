@@ -37,6 +37,9 @@ public final class TunnelService extends VpnService {
     private FileInputStream packetInput;
     private FileOutputStream packetOutput;
     private boolean foreground;
+    private volatile XrayEngine xray;
+    private final Object xrayLock = new Object();
+    private volatile long leaseDeadline;
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && "STOP".equals(intent.getAction())) { stopTunnel(); stopSelf(); return START_NOT_STICKY; }
@@ -72,6 +75,7 @@ public final class TunnelService extends VpnService {
         try {
             if (profileId == null) throw new Exception("Choose a connection profile.");
             Api api = new Api(new Vault(this)); JSONObject result = api.connect(profileId);
+            if ("xray".equals(result.optString("engine"))) { runXray(api, result); return; }
             JSONObject profile = result.getJSONObject("profile"); String sni = profile.getString("sni"); int port = profile.getInt("port");
             if (!running.get()) return;
             Socket socket = new Socket(); raw = socket;
@@ -129,9 +133,66 @@ public final class TunnelService extends VpnService {
             }
         } catch (Exception error) {
             if (running.get()) detail = error.getMessage() == null ? "Connection failed." : error.getMessage();
-        } finally { stopTunnel(); stopSelf(); }
+        } finally {
+            stopTunnel(); stopSelf();
+            try { new Api(new Vault(this)).request("/v1/disconnect", new JSONObject(), true); } catch (Exception ignored) {}
+        }
+    }
+    private void runXray(Api api, JSONObject result) throws Exception {
+        JSONObject profile = result.getJSONObject("profile");
+        if (!running.get()) return;
+        String lease = result.getString("lease");
+        leaseDeadline = android.os.SystemClock.elapsedRealtime() + 30000;
+        // The app UID bypasses the TUN, preventing loops for both native sockets and API calls.
+        Builder builder = new Builder().setSession("Top private Plug · " + profile.getString("name"))
+            .setMtu(1400).addAddress("10.99.0.2", 30).addAddress("fd00:99::2", 126)
+            .addRoute("0.0.0.0", 0).addRoute("::", 0).addDnsServer("1.1.1.1").setBlocking(false);
+        builder.addDisallowedApplication(getPackageName());
+        XrayEngine engine;
+        synchronized (xrayLock) {
+            if (!running.get()) return;
+            tun = builder.establish();
+            if (tun == null) throw new Exception("Android could not create the VPN interface.");
+            engine = new XrayEngine(getFilesDir()); xray = engine;
+            engine.start(result.getJSONObject("config").toString(), tun.getFd());
+        }
+        pinger = new Thread(() -> {
+            while (running.get()) {
+                if (android.os.SystemClock.elapsedRealtime() >= leaseDeadline) {
+                    detail = "Account check timed out. Reconnect when the service is reachable.";
+                    stopTunnel(); stopSelf(); return;
+                }
+                try { Thread.sleep(500); } catch (InterruptedException ignored) { return; }
+            }
+        }, "tpp-xray-watchdog"); pinger.start();
+        latency = engine.probe(new Vault(this).endpoint() + "/health");
+        if (!running.get()) return;
+        state = "Connected";
+        detail = profile.optBoolean("insecure_tls") ? "Test profile: server certificate verification is disabled." : "Trojan / TLS · traffic check passed";
+        showNotification(detail);
+        while (running.get() && engine.running()) {
+            synchronized (xrayLock) {
+                if (!running.get()) break;
+                for (String item : engine.traffic().split(";")) {
+                    String[] values = item.split(",");
+                    if (values.length != 3 || !"trojan".equals(values[0])) continue;
+                    long count = Long.parseLong(values[2]);
+                    if (count < 0) throw new Exception("Invalid traffic counter.");
+                    if ("uplink".equals(values[1])) uploaded += count;
+                    else if ("downlink".equals(values[1])) downloaded += count;
+                }
+            }
+            JSONObject check = api.request("/v1/xray/heartbeat", new JSONObject().put("lease", lease)
+                .put("up", uploaded).put("down", downloaded), true);
+            if (!check.optBoolean("ok")) throw new Exception("Account check failed.");
+            leaseDeadline = android.os.SystemClock.elapsedRealtime() + 30000;
+            try { Thread.sleep(5000); } catch (InterruptedException ignored) { break; }
+        }
     }
     private void closeTransport() {
+        synchronized (xrayLock) {
+            if (xray != null) { xray.stop(); xray = null; }
+        }
         try { if (raw != null) raw.close(); } catch (Exception ignored) {}
         try { if (tls != null) tls.close(); } catch (Exception ignored) {}
         try { if (packetInput != null) packetInput.close(); } catch (Exception ignored) {}
@@ -147,3 +208,4 @@ public final class TunnelService extends VpnService {
     @Override public void onRevoke() { stopTunnel(); stopSelf(); }
     @Override public void onDestroy() { stopTunnel(); super.onDestroy(); }
 }
+

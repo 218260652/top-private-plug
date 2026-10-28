@@ -19,6 +19,7 @@ final class Api {
         connection.setConnectTimeout(12000); connection.setReadTimeout(15000);
         connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("Accept", "application/json");
+        connection.setRequestProperty("X-TPP-Engines", "tpp,xray");
         if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + vault.token());
         try {
             if (data != null) {
@@ -52,3 +53,4 @@ final class Api {
     }
     JSONObject connect(String profile) throws Exception { return request("/v1/connect", proof("connect").put("profile_id", profile), true); }
 }
+

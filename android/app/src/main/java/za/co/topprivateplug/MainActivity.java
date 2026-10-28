@@ -134,7 +134,7 @@ public final class MainActivity extends Activity {
     }
     void usage() {
         add(content,text("Usage",28,TEXT,true),20);planCard();
-        LinearLayout c=card();add(c,text("This connection",18,TEXT,true),15);add(c,text("↑ Upload    "+bytes(TunnelService.uploaded)+"\n↓ Download    "+bytes(TunnelService.downloaded),18,CYAN,true),12);add(c,text("Live counters reset on reconnect. The plan quota is the authoritative server total.",12,MUTED,false),0);
+        LinearLayout c=card();add(c,text("This connection",18,TEXT,true),15);add(c,text("↑ Upload    "+bytes(TunnelService.uploaded)+"\n↓ Download    "+bytes(TunnelService.downloaded),18,CYAN,true),12);add(c,text("Live counters reset on reconnect. TPP quota is gateway measured; imported Xray usage is app reported.",12,MUTED,false),0);
         add(content,text("Server data history",19,TEXT,true),12);LinearLayout controls=new LinearLayout(this);
         for(int hours:new int[]{1,6,24}){Button b=button(hours+"H",hours==graphHours,v->{graphHours=hours;loadGraph();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(48),1);p.setMargins(dp(4),0,dp(4),0);controls.addView(b,p);}add(content,controls,15);add(content,new UsageGraph(),20);
     }
@@ -144,8 +144,8 @@ public final class MainActivity extends Activity {
     }
     void settings() {
         add(content,text("Settings",28,TEXT,true),20);LinearLayout c=card();add(c,text("Service address",16,TEXT,true),6);add(c,text(vault.endpoint().isEmpty()?"Not configured":vault.endpoint(),13,MUTED,false),14);add(c,button("Change service address",false,v->endpointDialog()),0);
-        c=card();add(c,text("Connection security",18,TEXT,true),12);add(c,text("TLS 1.2 / 1.3 encryption\nCertificate and hostname checks always enabled\nDevice keys kept in Android Keystore\nServer-controlled expiry and data limits",14,MUTED,false),10);add(c,text("SNI, host and port are managed by your admin. Profile updates require reconnecting.",12,MUTED,false),0);
-        c=card();add(c,text("Privacy & service",18,TEXT,true),12);add(c,text("Your service stores your activation time, device public key, access status and upload/download byte totals. This app does not request contacts, location or media access.\n\nThis pilot carries IPv4 traffic and blocks IPv6 while connected. MTN, Telkom and Cell C labels do not guarantee network compatibility or provide mobile data. An existing internet connection is required.\n\nDisconnecting or a failed connection restores your normal network. Always-on VPN and a kill switch are not included in this pilot.",13,MUTED,false),0);
+        c=card();add(c,text("Connection security",18,TEXT,true),12);add(c,text("TLS 1.2 / 1.3 encryption\nCertificate checks depend on the selected profile\nDevice keys kept in Android Keystore\nGateway or app controls depend on the selected profile",14,MUTED,false),10);add(c,text("SNI, host and port are managed by your admin. Profile updates require reconnecting.",12,MUTED,false),0);
+        c=card();add(c,text("Privacy & service",18,TEXT,true),12);add(c,text("Your service stores your activation time, device public key, access status and upload/download byte totals. This app does not request contacts, location or media access.\n\nTPP carries IPv4 and blocks IPv6; Xray profiles route both through the tunnel. MTN, Telkom and Cell C labels do not guarantee network compatibility or provide mobile data. An existing internet connection is required.\n\nDisconnecting or a failed connection restores your normal network. Always-on VPN and a kill switch are not included in this pilot.",13,MUTED,false),0);
         add(content,button("Activate / recover access",false,v->codeDialog(false)),15);
         add(content,button("WhatsApp: "+PurchaseRequest.DISPLAY_PHONE,false,v->purchaseDialog(account!=null)),15);
         add(content,button("Forget access on this phone",false,v->new AlertDialog.Builder(this).setTitle("Forget access?").setMessage("This removes the local login. Your subscription keeps its original expiry. You can recover it with the same code on this installation.").setPositiveButton("Forget",(d,n)->{stopService(new Intent(this,TunnelService.class));try{vault.token("");}catch(Exception ignored){}account=null;profiles=new JSONArray();tab="Home";render();}).setNegativeButton("Cancel",null).show()),20);
@@ -209,3 +209,4 @@ public final class MainActivity extends Activity {
         @Override public void setAlpha(int a){}@Override public void setColorFilter(android.graphics.ColorFilter f){}@Override public int getOpacity(){return android.graphics.PixelFormat.OPAQUE;}
     }
 }
+
