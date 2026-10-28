@@ -8,6 +8,7 @@ import java.net.URL;
 import javax.net.ssl.HttpsURLConnection;
 
 final class Api {
+    interface Progress { void stage(String message) throws Exception; }
     private final Vault vault;
     Api(Vault vault) { this.vault = vault; }
     JSONObject request(String path, JSONObject data, boolean authenticated) throws Exception {
@@ -43,8 +44,13 @@ final class Api {
         } finally { connection.disconnect(); }
     }
     JSONObject proof(String purpose) throws Exception {
+        return proof(purpose, null);
+    }
+    JSONObject proof(String purpose, Progress progress) throws Exception {
+        if (progress != null) progress.stage("Contacting account service for a connection challenge");
         String publicKey = DeviceKey.publicKey();
         JSONObject challenge = request("/v1/challenge", new JSONObject().put("public_key", publicKey).put("purpose", purpose), false);
+        if (progress != null) progress.stage("Signing the device challenge");
         return new JSONObject().put("public_key", publicKey).put("challenge_id", challenge.getString("id"))
             .put("signature", DeviceKey.sign(challenge.getString("message")));
     }
@@ -53,6 +59,12 @@ final class Api {
         vault.token(result.getString("token")); return result.getJSONObject("account");
     }
     JSONObject connect(String profile) throws Exception { return request("/v1/connect", proof("connect").put("profile_id", profile), true); }
+    JSONObject connect(String profile, Progress progress) throws Exception {
+        JSONObject data = proof("connect", progress).put("profile_id", profile);
+        progress.stage("Authorizing account and downloading the connection profile");
+        return request("/v1/connect", data, true);
+    }
 }
+
 
 
