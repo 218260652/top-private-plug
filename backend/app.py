@@ -168,6 +168,8 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
         profile = store.get_profile(data['profile_id'])
         if profile.get('engine') != 'xray':
             raise Fault('Manual server/SNI connections have been removed. Ask your admin to assign an imported profile.', 410)
+        if profile.get('insecure_tls') and 'legacy-tls-test-v1' not in request.headers.get('X-TPP-Features', '').split(','):
+            raise Fault('This supplier test profile needs Top private Plug 0.1.5 or newer. Install the compatibility APK, then reconnect.', 426)
         return web.json_response(xray.connect(store, token(request), data))
 
     async def usage(request):
