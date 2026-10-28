@@ -58,7 +58,7 @@ func main() {
     serverPort := reservation.Addr().(*net.TCPAddr).Port; reservation.Close()
     serverAddress := net.JoinHostPort("127.0.0.1", strconv.Itoa(serverPort))
     server := instance(object{
-        "log": object{"loglevel": "warning"},
+        "log": object{"loglevel": "debug"},
         "inbounds": []object{{"listen": "127.0.0.1", "port": serverPort, "protocol": "vless",
             "settings": object{"clients": []object{{"id": "00000000-0000-4000-8000-000000000001"}}, "decryption": "none"},
             "streamSettings": object{"network": "tcp", "security": "tls", "tlsSettings": object{"certificates": []object{{
@@ -87,13 +87,14 @@ func main() {
     _, proxyPort, err := net.SplitHostPort(proxy.Listener.Addr().String()); if err != nil { panic(err) }
     proxyNumber, err := strconv.Atoi(proxyPort); if err != nil { panic(err) }
 
-    for _, mode := range []string{"working", "verified-TLS-rejects-self-signed", "wrong-UUID", "proxy-rejects"} {
+    for _, mode := range []string{"direct-working", "working", "verified-TLS-rejects-self-signed", "wrong-UUID", "proxy-rejects"} {
         var config object
         if err := json.Unmarshal(original, &config); err != nil { panic(err) }
         outbounds := config["outbounds"].([]interface{})
         tunnel := outbounds[0].(map[string]interface{})
         node := tunnel["settings"].(map[string]interface{})["vnext"].([]interface{})[0].(map[string]interface{})
         node["port"] = serverPort
+        if mode == "direct-working" { delete(tunnel["streamSettings"].(map[string]interface{}), "sockopt") }
         upstream := outbounds[1].(map[string]interface{})["settings"].(map[string]interface{})["servers"].([]interface{})[0].(map[string]interface{})
         upstream["port"] = proxyNumber
         if mode == "verified-TLS-rejects-self-signed" {
@@ -115,8 +116,9 @@ func main() {
         body := ""
         if response != nil { b, _ := io.ReadAll(response.Body); response.Body.Close(); body = string(b) }
         tr.CloseIdleConnections(); clientCore.Close()
-        if mode == "working" {
-            if requestErr != nil || response == nil || response.StatusCode != 200 || body != "through-vless" || received.Load() != before+1 || connected.Load() < 1 {
+        if mode == "working" || mode == "direct-working" {
+            fmt.Println("fixture origin requests",received.Load(),"proxy connections",connected.Load())
+            if requestErr != nil || response == nil || response.StatusCode != 200 || body != "through-vless" || received.Load() != before+1 || (mode == "working" && connected.Load() < 1) {
                 panic(fmt.Sprintf("full VLESS HTTP/TLS chain failed: %v body=%q", requestErr, body))
             }
         } else if requestErr == nil || received.Load() != before {

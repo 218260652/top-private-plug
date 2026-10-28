@@ -60,7 +60,10 @@ jobs:
           go-version-file: .xray-source/go.mod
           cache-dependency-path: .xray-source/go.sum
       - name: Build native Xray engine
-        run: bash tools/build_xray.sh
+        run: |
+          python tools/prepare_xray_compat.py --source .xray-source
+          python tools/verify_xray_chain.py --source .xray-source
+          bash tools/build_xray.sh
       - name: Reproduce Android interface permission restriction
         run: |
           if ! command -v strace >/dev/null; then
@@ -71,7 +74,6 @@ jobs:
       - name: Build and verify debug-signed pilot
         # Exercise real loopback sockets separately from the denied-socket parser test.
         run: |
-          python tools/verify_xray_chain.py --source .xray-source
           python tools/build_android.py --sdk "$ANDROID_HOME"
       - name: Package rebuild sources and licenses
         run: |

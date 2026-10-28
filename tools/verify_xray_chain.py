@@ -27,7 +27,7 @@ def main():
     config = normalize(raw, True)[0]
     # The test exercises the outbound path used by measureDelay, without an OS TUN.
     config['inbounds'] = []
-    config['log']['loglevel'] = 'warning'
+    config['log']['loglevel'] = 'debug'
     with tempfile.TemporaryDirectory() as directory:
         binary = Path(directory) / 'chain-test'
         subprocess.run(['go', 'build', '-o', str(binary), str(Path(__file__).with_name('xray_chain_harness.go').resolve())],
