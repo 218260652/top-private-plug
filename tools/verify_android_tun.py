@@ -74,6 +74,13 @@ def main():
     current = normalize(current_raw)[0]
     current_raw['outbounds'][0]['streamSettings']['tlsSettings']['allowInsecure'] = True
     insecure = normalize(current_raw, allow_insecure=True)[0]
+    vless_raw = json.loads(json.dumps(raw))
+    vless_raw['outbounds'][0]['protocol'] = 'vless'
+    vless_raw['outbounds'][0]['settings'] = {'vnext': [{'address': 'vpn.example.com', 'port': 8446,
+        'users': [{'id': '00000000-0000-4000-8000-000000000001', 'encryption': 'none'}]}]}
+    vless_raw['outbounds'][0]['streamSettings']['tlsSettings'].update({'fingerprint': 'chrome', 'allowInsecure': True})
+    vless_raw['dns'] = {'servers': ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']}
+    vless = normalize(vless_raw, allow_insecure=True)[0]
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / 'main.go').write_text(HARNESS)
@@ -81,7 +88,7 @@ def main():
         subprocess.run(['go', 'build', '-o', str(binary), str(root / 'main.go')], cwd=args.source.resolve(), check=True, timeout=600)
         subprocess.run([str(binary), '--tls-policy'], check=True, timeout=30)
         command = ['strace', '-f', '-qq', '-e', 'trace=socket', '-e', 'inject=socket:error=EACCES', str(binary)]
-        for label, config in [('direct', direct), ('legacy HTTP import', proxied), ('current HTTP import', current), ('explicit test TLS', insecure)]:
+        for label, config in [('direct', direct), ('legacy HTTP import', proxied), ('current HTTP import', current), ('explicit test TLS', insecure), ('VLESS HTTP chain and DoH', vless)]:
             fixed = subprocess.run(command, input=json.dumps(config), text=True, capture_output=True, timeout=30)
             if fixed.returncode:
                 raise SystemExit('Full config failed (' + label + '): ' + fixed.stderr)
@@ -101,3 +108,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

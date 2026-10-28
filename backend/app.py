@@ -87,7 +87,7 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
         return header[7:]
 
     async def health(request):
-        return web.json_response({'status': 'ok', 'gateway_enabled': False, 'protocol': 'Trojan/Xray', 'connection_method': 'imported-profile'})
+        return web.json_response({'status': 'ok', 'gateway_enabled': False, 'protocol': 'VLESS/Trojan/Xray', 'connection_method': 'imported-profile'})
 
     async def setup_status(request):
         return web.json_response({'setup_required': not store.has_admin()})
@@ -264,5 +264,6 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+
 
 

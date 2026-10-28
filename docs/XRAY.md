@@ -40,3 +40,10 @@ The native regression now parses the entire generated Xray configuration, includ
 The pinned upstream core removed `allowInsecure:true`. `tools/prepare_xray_compat.py` copies the exact pinned core source into the rebuild tree and applies a small compatibility patch: only an explicit legacy true flag maps to a private test-mode sentinel. The TLS adapter recognizes that sentinel and restores the previous unverified testing behavior. Normal certificate verification remains enabled for ordinary profiles; conflicts with pins/name overrides are rejected. Native policy checks verify both the opt-in and ordinary certificate-name rejection. The patched source and script are included with rebuild sources; this is a modified core, not unmodified upstream behavior.
 
 The importer still requires the owner to select the unverified testing option, and Android still displays its warning. Unverified profiles do not authenticate the supplier. Existing 0.1.4 and older engines cannot run this flag: the API returns an upgrade instruction before issuing a lease. Use the 0.1.5 compatibility APK. Supplier traffic remains unverified until a physical-device test succeeds.
+
+
+## VLESS supplier replacement
+
+The importer also accepts one VLESS TCP/TLS outbound with one UUID user, encryption `none`, and no flow. It preserves an optional supported TLS fingerprint, translates the legacy HTTP proxy chain to `sockopt.dialerProxy`, and accepts routed DoH at `https://1.1.1.1/dns-query` and `https://dns.google/dns-query`. Inactive WebSocket settings are omitted; this does not switch the server transport. Supplied credentials belong only in the private database.
+
+The outbound retains the historical `trojan` statistics tag so installed 0.1.5 clients continue counting usage for VLESS. This tag is not the protocol: the outbound protocol and credentials are VLESS. Replacing an existing profile preserves account assignments and increments its version, requiring active clients to reconnect. The native parser regression includes VLESS, HTTP chaining, Chrome fingerprint and DoH. Live phone traffic remains a separate acceptance check.

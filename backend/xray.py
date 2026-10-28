@@ -1,4 +1,4 @@
-"""Restricted Trojan import and expiring app leases; no ownership of upstream implied."""
+"""Restricted VLESS/Trojan imports and expiring app leases."""
 import copy
 import ipaddress
 import json
@@ -37,19 +37,41 @@ def normalize(raw, allow_insecure=False):
     source = raw.get('outbounds', [])
     if not isinstance(source, list):
         raise Fault('Outbounds must be an array')
-    trojans = [o for o in source if isinstance(o, dict) and o.get('protocol') == 'trojan']
-    if len(trojans) != 1:
-        raise Fault('Import one Trojan outbound per profile')
-    original = trojans[0]
+    tunnels = [o for o in source if isinstance(o, dict) and o.get('protocol') in ('vless', 'trojan')]
+    if len(tunnels) != 1:
+        raise Fault('Import one VLESS or Trojan outbound per profile')
+    original = tunnels[0]
+    protocol = original['protocol']
     try:
-        server = original['settings']['servers'][0]
+        servers = original['settings']['vnext' if protocol == 'vless' else 'servers']
+        if not isinstance(servers, list) or len(servers) != 1:
+            raise Fault('Import exactly one tunnel server')
+        server = servers[0]
         address, server_port = host(server['address']), port(server['port'])
-        password = server['password']
-        if not isinstance(password, str) or not 1 <= len(password) <= 256:
-            raise Fault('Trojan password is required')
+        if protocol == 'vless':
+            users = server['users']
+            if not isinstance(users, list) or len(users) != 1:
+                raise Fault('Import exactly one VLESS user')
+            user = users[0]
+            identity = user['id']
+            if not isinstance(identity, str):
+                raise Fault('VLESS UUID is required')
+            try:
+                identity = str(uuid.UUID(identity))
+            except ValueError:
+                raise Fault('VLESS UUID is invalid') from None
+            if user.get('encryption', 'none') != 'none' or user.get('flow', ''):
+                raise Fault('Only VLESS encryption none without flow is supported')
+            settings = {'vnext': [{'address': address, 'port': server_port,
+                'users': [{'id': identity, 'encryption': 'none', 'level': 0}]}]}
+        else:
+            password = server['password']
+            if not isinstance(password, str) or not 1 <= len(password) <= 256:
+                raise Fault('Trojan password is required')
+            settings = {'servers': [{'address': address, 'port': server_port, 'password': password, 'level': 0}]}
         stream = original['streamSettings']
         if stream.get('network', 'tcp') not in ('tcp', 'raw') or stream.get('security') != 'tls':
-            raise Fault('This importer supports Trojan over TCP with TLS')
+            raise Fault('This importer supports VLESS or Trojan over TCP with TLS')
         tls = stream.get('tlsSettings', {})
         sni = host(tls.get('serverName') or address)
         insecure = tls.get('allowInsecure', False)
@@ -57,10 +79,16 @@ def normalize(raw, allow_insecure=False):
             raise Fault('allowInsecure must be boolean')
         if insecure and not allow_insecure:
             raise Fault('This profile disables certificate checks. Enable the testing option explicitly or supply a verified profile.')
-        outbound = {'tag': 'trojan', 'protocol': 'trojan', 'settings': {'servers': [
-            {'address': address, 'port': server_port, 'password': password, 'level': 0}]},
+        # Keep the historical statistics tag for installed 0.1.5 clients.
+        # The tag is an internal identifier, not the tunnel protocol.
+        outbound = {'tag': 'trojan', 'protocol': protocol, 'settings': settings,
             'streamSettings': {'network': 'tcp', 'security': 'tls', 'tlsSettings': {
                 'serverName': sni, 'allowInsecure': insecure, 'minVersion': '1.2'}}}
+        fingerprint = tls.get('fingerprint')
+        if fingerprint is not None:
+            if fingerprint not in ('chrome', 'firefox', 'safari', 'edge', 'ios', 'android', 'random', 'randomized'):
+                raise Fault('Unsupported TLS fingerprint')
+            outbound['streamSettings']['tlsSettings']['fingerprint'] = fingerprint
         outbounds = [outbound]
         legacy_proxy = original.get('proxySettings')
         sockopt = stream.get('sockopt', {})
@@ -100,17 +128,20 @@ def normalize(raw, allow_insecure=False):
         for address_value in dns:
             if not isinstance(address_value, str):
                 raise Fault('Use DNS server strings')
+            # Permit the supplied routed DoH resolvers, never local-mode URLs.
+            if address_value in ('https://1.1.1.1/dns-query', 'https://dns.google/dns-query'):
+                continue
             # Restrict to literal addresses; no files, local socket paths or arbitrary URLs.
             try:
                 ipaddress.ip_address(address_value.removeprefix('tcp+local://').removeprefix('tcp://'))
             except ValueError:
-                raise Fault('DNS servers must be literal IP addresses, optionally with tcp:// or tcp+local://') from None
+                raise Fault('Use literal DNS IPs, TCP DNS, or the supported Cloudflare/Google HTTPS resolvers') from None
         # Local-mode DNS bypasses Xray routing. Keep the resolver and TCP transport,
         # but dispatch queries through dns-in and the Trojan outbound instead.
         dns = ['tcp://' + value[len('tcp+local://'):] if value.startswith('tcp+local://') else value
                for value in dns]
     except (KeyError, IndexError, TypeError, AttributeError):
-        raise Fault('Incomplete Trojan or upstream settings') from None
+        raise Fault('Incomplete VLESS, Trojan or upstream settings') from None
     outbounds.extend([{'tag': 'dns-out', 'protocol': 'dns'}, {'tag': 'block', 'protocol': 'blackhole'}])
     config = {'log': {'loglevel': 'none'}, 'dns': {'servers': dns, 'queryStrategy': 'UseIPv4', 'tag': 'dns-in'},
         # Android supplies the descriptor. A nonempty name prevents Xray's
@@ -239,4 +270,5 @@ def toggle(store, profile_id, data):
         db.execute('UPDATE profiles SET enabled=?,version=version+1 WHERE id=?', (int(data['enabled']), profile_id))
         store.audit(db, 'xray_profile_enabled' if data['enabled'] else 'xray_profile_disabled', profile_id)
     return store.get_profile(profile_id)
+
 

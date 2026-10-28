@@ -17,6 +17,69 @@ def config(insecure=False):
 
 
 class XrayTests(unittest.TestCase):
+    @staticmethod
+    def vless_config():
+        raw = config(True)
+        tunnel = raw['outbounds'][0]
+        tunnel['protocol'] = 'vless'
+        tunnel['settings'] = {'vnext': [{'address': 'vpn.example.com', 'port': 8446,
+            'users': [{'id': '00000000-0000-4000-8000-000000000001', 'encryption': 'none', 'level': 8}]}]}
+        tunnel['streamSettings']['tlsSettings']['fingerprint'] = 'chrome'
+        tunnel['streamSettings']['wsSettings'] = {'path': '/unused'}
+        raw['dns']['servers'] = ['https://1.1.1.1/dns-query', 'https://dns.google/dns-query']
+        return raw
+
+    def test_vless_preserves_credentials_proxy_fingerprint_and_routed_doh(self):
+        raw = self.vless_config()
+        original = json.loads(json.dumps(raw))
+        normalized, address, port, sni, insecure = xray.normalize(raw, True)
+        tunnel = normalized['outbounds'][0]
+        self.assertEqual(tunnel['protocol'], 'vless')
+        self.assertNotIn('servers', tunnel['settings'])
+        self.assertEqual(tunnel['settings']['vnext'][0]['users'][0]['id'],
+                         raw['outbounds'][0]['settings']['vnext'][0]['users'][0]['id'])
+        self.assertEqual((address, port, sni, insecure), ('vpn.example.com', 8446, 'vpn.example.com', True))
+        self.assertEqual(tunnel['streamSettings']['tlsSettings']['fingerprint'], 'chrome')
+        self.assertEqual(tunnel['streamSettings']['sockopt']['dialerProxy'], 'http-upstream')
+        self.assertEqual(normalized['outbounds'][1]['settings']['headers'], raw['outbounds'][1]['settings']['headers'])
+        self.assertNotIn('wsSettings', tunnel['streamSettings'])
+        self.assertEqual(normalized['dns']['servers'], raw['dns']['servers'])
+        self.assertEqual(normalized['routing']['rules'][-1]['outboundTag'], tunnel['tag'])
+        self.assertEqual(xray.normalize(normalized, True)[0], normalized)
+        self.assertEqual(raw, original)
+
+    def test_vless_replacement_preserves_assignments_and_revokes_old_lease(self):
+        connected = self.connect()
+        replaced = xray.save(self.store, dict(self.data, config=self.vless_config(), allow_insecure=True), self.profile['id'])
+        self.assertEqual(replaced['id'], self.profile['id'])
+        self.assertGreater(replaced['version'], self.profile['version'])
+        with self.assertRaises(Fault): self.beat(connected)
+        xray.disconnect(self.store, self.auth['token'], {'lease': connected['lease']})
+        replacement = self.connect()
+        self.assertEqual(replacement['config']['outbounds'][0]['protocol'], 'vless')
+        self.beat(replacement)
+        self.assertNotIn('00000000-0000-4000-8000-000000000001', json.dumps(self.store.profiles()))
+
+    def test_vless_rejects_invalid_or_ambiguous_credentials_and_transport(self):
+        with self.assertRaises(Fault): xray.normalize(self.vless_config())
+        for update in [{'id': 'invalid'}, {'id': 123}, {'flow': 'xtls-rprx-vision'}, {'encryption': 'invalid'}]:
+            raw = self.vless_config()
+            raw['outbounds'][0]['settings']['vnext'][0]['users'][0].update(update)
+            with self.assertRaises(Fault): xray.normalize(raw, True)
+        for field, value in [('vnext', []), ('vnext', [None])]:
+            raw = self.vless_config(); raw['outbounds'][0]['settings'][field] = value
+            with self.assertRaises(Fault): xray.normalize(raw, True)
+        raw = self.vless_config(); raw['outbounds'].append(config()['outbounds'][0])
+        with self.assertRaises(Fault): xray.normalize(raw, True)
+        raw = self.vless_config(); raw['outbounds'][0]['streamSettings']['network'] = 'ws'
+        with self.assertRaises(Fault): xray.normalize(raw, True)
+
+    def test_doh_rejects_local_mode_and_arbitrary_urls(self):
+        for value in ['https+local://dns.google/dns-query', 'https://evil.example/dns-query',
+                      'https://dns.google/dns-query?file=/etc/passwd', 'file:///etc/passwd']:
+            raw = self.vless_config(); raw['dns']['servers'] = [value]
+            with self.assertRaises(Fault): xray.normalize(raw, True)
+
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(); self.clock=[1800000000]
         self.store=Store(Path(self.tmp.name)/'xray.sqlite3', lambda:self.clock[0])
@@ -210,3 +273,4 @@ class XrayApiTests(unittest.IsolatedAsyncioTestCase):
         headers['X-TPP-Features']='legacy-tls-test-v1'
         r=await self.client.post('/v1/connect',headers=headers,json=data);self.assertEqual(r.status,200)
         self.assertTrue((await r.json())['config']['outbounds'][0]['streamSettings']['tlsSettings']['allowInsecure'])
+
