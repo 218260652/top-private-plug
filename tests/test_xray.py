@@ -38,7 +38,8 @@ class XrayTests(unittest.TestCase):
     def test_normalization_removes_local_listeners_and_rebuilds_routes(self):
         normalized,*_=xray.normalize(config())
         self.assertEqual(normalized['inbounds'],[{'tag':'tun-inbound','protocol':'tun','settings':{'name':'tpp0','mtu':1400}}])
-        self.assertEqual(normalized['outbounds'][0]['proxySettings']['tag'],'http-upstream')
+        self.assertEqual(normalized['outbounds'][0]['streamSettings']['sockopt']['dialerProxy'],'http-upstream')
+        self.assertNotIn('proxySettings', normalized['outbounds'][0])
         self.assertEqual(normalized['routing']['rules'][1]['inboundTag'],['tun-inbound'])
         self.assertNotIn('api',normalized)
 
@@ -46,6 +47,38 @@ class XrayTests(unittest.TestCase):
         with self.assertRaises(Fault): xray.normalize(config(True))
         normalized,*_=xray.normalize(config(True),True)
         self.assertTrue(normalized['outbounds'][0]['streamSettings']['tlsSettings']['allowInsecure'])
+
+    def test_current_dialer_proxy_import_and_repeated_normalization_preserve_upstream(self):
+        raw = config()
+        old = raw['outbounds'][0].pop('proxySettings')
+        raw['outbounds'][0]['streamSettings']['sockopt'] = {'dialerProxy': old['tag']}
+        first = xray.normalize(raw)[0]
+        self.assertEqual(xray.normalize(first)[0], first)
+        self.assertEqual(first['outbounds'][0]['streamSettings']['sockopt']['dialerProxy'], 'http-upstream')
+        upstream = next(o for o in first['outbounds'] if o['tag'] == 'http-upstream')
+        self.assertEqual(upstream['settings']['headers']['Host'], 'vpn.example.com:443')
+        self.assertNotIn('proxySettings', json.dumps(first))
+
+    def test_legacy_stored_proxy_is_migrated_on_connect(self):
+        with self.store.db() as db:
+            row = db.execute('SELECT config FROM xray_profiles WHERE profile=?', (self.profile['id'],)).fetchone()
+            old = json.loads(row['config'])
+            old['outbounds'][0]['streamSettings'].pop('sockopt', None)
+            old['outbounds'][0]['proxySettings'] = {'tag': 'http-upstream', 'transportLayer': True}
+            db.execute('UPDATE xray_profiles SET config=? WHERE profile=?', (json.dumps(old), self.profile['id']))
+        connected = self.connect()['config']
+        self.assertNotIn('proxySettings', json.dumps(connected))
+        self.assertEqual(connected['outbounds'][0]['streamSettings']['sockopt']['dialerProxy'], 'http-upstream')
+        upstream = next(o for o in connected['outbounds'] if o['tag'] == 'http-upstream')
+        self.assertEqual(upstream['settings']['servers'][0]['address'], '192.0.2.1')
+        self.assertEqual(upstream['settings']['headers']['Host'], 'vpn.example.com:443')
+
+    def test_conflicting_or_malformed_proxy_settings_are_rejected(self):
+        raw = config(); raw['outbounds'][0]['streamSettings']['sockopt'] = {'dialerProxy': 'different'}
+        with self.assertRaises(Fault): xray.normalize(raw)
+        for bad in [None, [], 'invalid']:
+            raw = config(); raw['outbounds'][0]['streamSettings']['sockopt'] = bad
+            with self.assertRaises(Fault): xray.normalize(raw)
 
     def test_dns_resolvers_follow_tunnel_routes_without_mutating_import(self):
         raw = config()

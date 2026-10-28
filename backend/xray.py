@@ -62,8 +62,21 @@ def normalize(raw, allow_insecure=False):
             'streamSettings': {'network': 'tcp', 'security': 'tls', 'tlsSettings': {
                 'serverName': sni, 'allowInsecure': insecure, 'minVersion': '1.2'}}}
         outbounds = [outbound]
-        if original.get('proxySettings'):
-            tag = original['proxySettings']['tag']
+        legacy_proxy = original.get('proxySettings')
+        sockopt = stream.get('sockopt', {})
+        if not isinstance(sockopt, dict):
+            raise Fault('Invalid stream socket settings')
+        tag = sockopt.get('dialerProxy')
+        if legacy_proxy is not None:
+            if not isinstance(legacy_proxy, dict):
+                raise Fault('Invalid legacy proxy settings')
+            legacy_tag = legacy_proxy['tag']
+            if tag is not None and tag != legacy_tag:
+                raise Fault('Conflicting upstream proxy tags')
+            tag = legacy_tag
+        if tag is not None:
+            if not isinstance(tag, str) or not 1 <= len(tag) <= 100:
+                raise Fault('Invalid upstream proxy tag')
             proxies = [o for o in source if isinstance(o, dict) and o.get('tag') == tag and o.get('protocol') == 'http']
             if len(proxies) != 1:
                 raise Fault('The upstream must be one HTTP proxy')
@@ -78,7 +91,9 @@ def normalize(raw, allow_insecure=False):
             outbounds.append({'tag': 'http-upstream', 'protocol': 'http', 'settings': {
                 'servers': [{'address': host(upstream['address']), 'port': port(upstream['port'])}],
                 'headers': copy.deepcopy(headers)}})
-            outbound['proxySettings'] = {'tag': 'http-upstream', 'transportLayer': True}
+            # The pinned Xray core rejects outbound proxySettings. TLS must be
+            # dialed through the HTTP CONNECT proxy via the current sockopt field.
+            outbound['streamSettings']['sockopt'] = {'dialerProxy': 'http-upstream'}
         dns = raw.get('dns', {}).get('servers', ['1.1.1.1'])
         if not isinstance(dns, list) or not 1 <= len(dns) <= 4:
             raise Fault('Use one to four DNS server addresses')
