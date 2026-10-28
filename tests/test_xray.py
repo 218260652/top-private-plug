@@ -47,6 +47,28 @@ class XrayTests(unittest.TestCase):
         normalized,*_=xray.normalize(config(True),True)
         self.assertTrue(normalized['outbounds'][0]['streamSettings']['tlsSettings']['allowInsecure'])
 
+    def test_dns_resolvers_follow_tunnel_routes_without_mutating_import(self):
+        raw = config()
+        raw['dns']['servers'] = ['tcp+local://1.1.1.1', 'tcp://8.8.8.8', '9.9.9.9', 'tcp+local://2606:4700:4700::1111']
+        original = json.loads(json.dumps(raw))
+        normalized, *_ = xray.normalize(raw)
+        self.assertEqual(normalized['dns']['servers'],
+                         ['tcp://1.1.1.1', 'tcp://8.8.8.8', '9.9.9.9', 'tcp://2606:4700:4700::1111'])
+        self.assertEqual(raw, original)
+        self.assertEqual(normalized['dns']['tag'], 'dns-in')
+        dns_rule = next(r for r in normalized['routing']['rules'] if 'dns-in' in r.get('inboundTag', []))
+        self.assertEqual(dns_rule['outboundTag'], 'trojan')
+
+    def test_existing_stored_import_dns_is_normalized_on_connect(self):
+        with self.store.db() as db:
+            row = db.execute('SELECT config FROM xray_profiles WHERE profile=?', (self.profile['id'],)).fetchone()
+            old = json.loads(row['config'])
+            old['dns']['servers'] = ['tcp+local://1.1.1.1']
+            db.execute('UPDATE xray_profiles SET config=? WHERE profile=?', (json.dumps(old), self.profile['id']))
+        connected = self.connect()
+        self.assertEqual(connected['config']['dns']['servers'], ['tcp://1.1.1.1'])
+        self.assertNotIn('tcp+local://', json.dumps(connected['config']))
+
     def test_password_only_returned_after_signed_connection(self):
         self.assertNotIn('test-secret-only',json.dumps(self.store.profiles()))
         self.assertNotIn('test-secret-only',json.dumps(self.profile))
@@ -136,3 +158,4 @@ class XrayApiTests(unittest.IsolatedAsyncioTestCase):
         r=await self.client.post('/v1/xray/heartbeat',headers=headers,json={'lease':connected['lease'],'up':4,'down':8});self.assertEqual(r.status,200)
         r=await self.client.post('/v1/disconnect',headers=headers,json={});self.assertEqual(r.status,200)
         with self.assertRaises(Fault): xray.heartbeat(self.store,auth['token'],{'lease':connected['lease'],'up':4,'down':8})
+
