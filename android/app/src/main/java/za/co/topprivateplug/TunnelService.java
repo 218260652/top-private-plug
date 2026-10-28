@@ -84,6 +84,8 @@ public final class TunnelService extends VpnService {
                 String reason = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
                 reason = reason.replaceAll("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "[redacted UUID]");
                 detail = "Failed: " + phase + ". " + reason;
+                XrayEngine engine = xray;
+                if (engine != null && !engine.diagnostic().isEmpty()) detail += "\nEngine: " + engine.diagnostic();
             }
         } finally {
             stopTunnel(); stopSelf();
