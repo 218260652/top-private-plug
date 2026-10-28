@@ -26,24 +26,15 @@ There is no default password and no public registration endpoint. Until the owne
 | `TPP_PUBLIC_ORIGIN` | Optional custom HTTPS origin; otherwise uses Render's documented `RENDER_EXTERNAL_URL` |
 | `TPP_HTTP_BIND` | `0.0.0.0` on Render |
 | `PORT` | Render's supplied HTTP listening port |
-| `TPP_REMOTE_GATEWAY` | Leave unset until the separate Linux VPN gateway is provisioned and verified |
+| `TPP_REMOTE_GATEWAY` | Legacy setting; ignored by the imported-only app entrypoint |
 
 Do not commit credential values. Free tiers have resource limits and may sleep; they are for the pilot, not a commercial availability guarantee. Database persistence is independent of the Render instance, but account records still require backups and operational monitoring.
 
-## VPN gateway is separate
+## Imported profiles only
 
-For the current Render + Neon setup, use the dedicated-server installer and owner checklist in [`deploy/GATEWAY-HANDOFF.md`](../deploy/GATEWAY-HANDOFF.md). It provides a systemd service, reboot forwarding and certificate renewal, but no VPS has yet been provisioned or tested.
+The active admin/API and Android app now use only imported Trojan/Xray JSON. A dedicated Oracle/TPP gateway and `TPP_REMOTE_GATEWAY` are no longer used by this app entrypoint. Sign in, import the unlocked supplier configuration, and assign it when creating an access code. Existing imported profiles and accounts remain stored. Manual profiles are retained for history but are hidden and rejected by the active API.
 
-The website manages accounts; it does not supply VPN bandwidth. A Linux host with TUN, NAT, an owned certificate and upstream bandwidth is still required. On that host:
-
-1. Install the project and its locked Python dependencies.
-2. Configure forwarding/isolation using `deploy/configure-network.sh` after reviewing it for that host.
-3. Securely configure `DATABASE_URL` for the SAME database, plus `TPP_TLS_CERT`, `TPP_TLS_KEY` and `TPP_GATEWAY_PORT`.
-4. Run a single `python -m backend.gateway_main` process under a service supervisor.
-5. Create admin connection profiles for that actual host, port and certificate hostname.
-6. Enable `TPP_REMOTE_GATEWAY=1` on the admin service only after the gateway is operational. Test expiry, quotas, suspension and actual internet routing on a physical Android device.
-
-Web-only restarts preserve active gateway session records. A gateway restart clears stale tunnel sessions. Do not run several packet gateways concurrently in this pilot. Strict database accounting over the network adds latency; capacity must be measured and the transport reviewed before selling access.
+Expiry, suspension and quotas are checked by the unmodified app. Supplier gateway credentials cannot be independently revoked by this admin, and byte counters are app reported. See [XRAY.md](XRAY.md) for the supported format and acceptance checks.
 
 ## Hosting created
 
@@ -55,3 +46,4 @@ Web-only restarts preserve active gateway session records. A gateway restart cle
 ## Owner setup verified
 
 The owner completed runtime database configuration. The latest deployment reports live, 26 PostgreSQL entitlement tests passed, `/health` returns `status: ok` with `gateway_enabled: false`, and `/setup-status` returns `setup_required: false`. The admin login exists. Login was not attempted with the owner’s private password. The gateway still needs a separately provisioned Linux server and end-to-end acceptance testing.
+

@@ -37,7 +37,7 @@ class XrayTests(unittest.TestCase):
 
     def test_normalization_removes_local_listeners_and_rebuilds_routes(self):
         normalized,*_=xray.normalize(config())
-        self.assertEqual(normalized['inbounds'],[{'tag':'tun-inbound','protocol':'tun','settings':{'mtu':1400}}])
+        self.assertEqual(normalized['inbounds'],[{'tag':'tun-inbound','protocol':'tun','settings':{'name':'tpp0','mtu':1400}}])
         self.assertEqual(normalized['outbounds'][0]['proxySettings']['tag'],'http-upstream')
         self.assertEqual(normalized['routing']['rules'][1]['inboundTag'],['tun-inbound'])
         self.assertNotIn('api',normalized)
@@ -64,10 +64,12 @@ class XrayTests(unittest.TestCase):
             row = db.execute('SELECT config FROM xray_profiles WHERE profile=?', (self.profile['id'],)).fetchone()
             old = json.loads(row['config'])
             old['dns']['servers'] = ['tcp+local://1.1.1.1']
+            old['inbounds'][0]['settings'].pop('name', None)
             db.execute('UPDATE xray_profiles SET config=? WHERE profile=?', (json.dumps(old), self.profile['id']))
         connected = self.connect()
         self.assertEqual(connected['config']['dns']['servers'], ['tcp://1.1.1.1'])
         self.assertNotIn('tcp+local://', json.dumps(connected['config']))
+        self.assertEqual(connected['config']['inbounds'][0]['settings']['name'], 'tpp0')
 
     def test_password_only_returned_after_signed_connection(self):
         self.assertNotIn('test-secret-only',json.dumps(self.store.profiles()))

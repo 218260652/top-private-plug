@@ -7,6 +7,13 @@ from backend.app import create_app
 from backend.store import Store
 from tests.test_control import device, proof
 from backend.hosted import create_setup_app
+from backend import xray
+
+
+def imported_config():
+    return {'outbounds': [{'protocol': 'trojan', 'settings': {'servers': [
+        {'address': 'vpn.example.com', 'port': 443, 'password': 'unit-test-only'}]},
+        'streamSettings': {'network': 'tcp', 'security': 'tls', 'tlsSettings': {'serverName': 'vpn.example.com'}}}]}
 
 
 class ApiTests(unittest.IsolatedAsyncioTestCase):
@@ -40,15 +47,19 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_full_admin_to_client_flow(self):
         await self.login()
-        p=await self.client.post('/admin/api/profiles',headers=self.headers,json={'name':'Cell C','carrier':'Cell C','server':'vpn.example.com','port':8443,'sni':'vpn.example.com','tls_min':'1.2','enabled':True});self.assertEqual(p.status,200);profile=await p.json()
+        p=await self.client.post('/admin/api/xray-profiles',headers=self.headers,json={'name':'Cell C','carrier':'Cell C','config':imported_config(),'enabled':True});self.assertEqual(p.status,200);profile=await p.json()
         r=await self.client.post('/admin/api/accounts',headers=self.headers,json={'label':'Client','kind':'trial','duration_seconds':10800,'quota_bytes':1_000_000_000,'profile_ids':[profile['id']]});self.assertEqual(r.status,201);issued=await r.json()
         private,public=device();challenge=await self.client.post('/v1/challenge',json={'public_key':public,'purpose':'activate'});self.assertEqual(challenge.status,200)
         # A fresh signed proof also exercises the identical public challenge store.
         r=await self.client.post('/v1/activate',json=dict(proof(self.store,private,public,'activate'),code=issued['code']));self.assertEqual(r.status,200);activation=await r.json()
-        auth={'Authorization':'Bearer '+activation['token']}
+        auth={'Authorization':'Bearer '+activation['token'], 'X-TPP-Engines': 'xray'}
         r=await self.client.get('/v1/status',headers=auth);data=await r.json();self.assertEqual(data['status'],'active');self.assertEqual(data['expires']-data['activated'],10800)
         r=await self.client.get('/v1/profiles',headers=auth);self.assertEqual(len((await r.json())['profiles']),1)
-        r=await self.client.post('/v1/connect',headers=auth,json={});self.assertEqual(r.status,503)
+        r=await self.client.post('/v1/connect',headers=auth,json={});self.assertEqual(r.status,400)
+        r=await self.client.post('/v1/connect',headers=auth,json=dict(proof(self.store,private,public,'connect'),profile_id=profile['id']))
+        self.assertEqual(r.status,200)
+        connected=await r.json();self.assertEqual(connected['engine'],'xray')
+        self.assertEqual(connected['config']['inbounds'][0]['settings']['name'],'tpp0')
         r=await self.client.patch('/admin/api/accounts/'+issued['account']['id'],headers=self.headers,json={'suspended':True});self.assertEqual(r.status,200)
         r=await self.client.get('/v1/status',headers=auth);self.assertEqual((await r.json())['status'],'suspended')
         r=await self.client.delete('/admin/api/accounts/'+issued['account']['id'],headers=self.headers);self.assertEqual(r.status,200)
@@ -58,6 +69,30 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         for _ in range(5):
             r=await self.client.post('/admin/api/login',headers=self.headers,json={'username':'admin','password':'wrong'});self.assertEqual(r.status,401)
         r=await self.client.post('/admin/api/login',headers=self.headers,json={'username':'admin','password':'wrong'});self.assertEqual(r.status,429)
+
+    async def test_legacy_profiles_cannot_be_created_listed_assigned_or_connected(self):
+        await self.login()
+        data={'name':'Legacy','carrier':'MTN','server':'vpn.example.com','port':443,'sni':'vpn.example.com','tls_min':'1.2','enabled':True}
+        legacy=self.store.save_profile(data)
+        for path,method in [('/admin/api/profiles','post'),('/admin/api/profiles/'+legacy['id'],'put')]:
+            r=await getattr(self.client,method)(path,headers=self.headers,json=data)
+            self.assertEqual(r.status,410)
+        r=await self.client.get('/admin/api/state');self.assertEqual((await r.json())['profiles'],[])
+        account_data={'label':'Old','kind':'trial','duration_seconds':60,'quota_bytes':1000,'profile_ids':[legacy['id']]}
+        r=await self.client.post('/admin/api/accounts',headers=self.headers,json=account_data);self.assertEqual(r.status,400)
+        issued=self.store.issue(account_data)
+        private,public=device();activation=self.store.activate(dict(proof(self.store,private,public,'activate'),code=issued['code']))
+        headers={'Authorization':'Bearer '+activation['token'],'X-TPP-Engines':'tpp,xray'}
+        r=await self.client.get('/v1/profiles',headers=headers);self.assertEqual((await r.json())['profiles'],[])
+        r=await self.client.post('/v1/connect',headers=headers,json=dict(proof(self.store,private,public,'connect'),profile_id=legacy['id']))
+        self.assertEqual(r.status,410)
+        r=await self.client.get('/assets/admin.js');self.assertNotIn('profile-form',await r.text())
+        r=await self.client.get('/admin/');page=await r.text();self.assertNotIn('Custom SNI',page);self.assertNotIn('id="profile-form"',page)
+
+    async def test_health_identifies_imported_only_mode(self):
+        r=await self.client.get('/health');data=await r.json()
+        self.assertEqual(data['connection_method'],'imported-profile')
+        self.assertFalse(data['gateway_enabled'])
 
     async def test_security_headers_and_ui_assets(self):
         for path in ['/admin/','/assets/admin.js','/assets/style.css','/assets/icon.svg']:
@@ -85,3 +120,4 @@ class SetupOnlyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_setup_status_clearly_not_operational(self):
         r=await self.client.get('/health');data=await r.json();self.assertFalse(data['admin_ready']);self.assertFalse(data['gateway_enabled']);self.assertEqual(data['status'],'setup_required')
+
