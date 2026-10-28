@@ -18,10 +18,35 @@ from backend.xray import normalize
 HARNESS = r'''package main
 import (
     "fmt"
+    "crypto/ecdsa"
+    "crypto/elliptic"
+    "crypto/rand"
+    "crypto/x509"
+    "math/big"
+    "time"
+    "github.com/xtls/xray-core/infra/conf"
+    coretls "github.com/xtls/xray-core/transport/internet/tls"
     "os"
     "github.com/xtls/xray-core/infra/conf/serial"
 )
 func main() {
+    if len(os.Args) > 1 && os.Args[1] == "--tls-policy" {
+        key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader); if err != nil { panic(err) }
+        cert := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{"localhost"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+        der, err := x509.CreateCertificate(rand.Reader, cert, cert, &key.PublicKey, key); if err != nil { panic(err) }
+        for _, insecure := range []bool{false, true} {
+            cfg := &conf.TLSConfig{AllowInsecure: insecure, ServerName: "vpn.example.com"}
+            built, err := cfg.Build(); if err != nil { panic(err) }
+            policy := built.(*coretls.Config).GetTLSConfig()
+            if policy.InsecureSkipVerify != insecure { panic("TLS opt-in changed default verification policy") }
+            if insecure && policy.VerifyPeerCertificate([][]byte{der}, nil) != nil { panic("Explicit legacy test TLS did not accept the self-signed certificate") }
+        }
+        verified := &conf.TLSConfig{VerifyPeerCertByName: "vpn.example.com"}
+        built, err := verified.Build(); if err != nil { panic(err) }
+        if built.(*coretls.Config).GetTLSConfig().VerifyPeerCertificate([][]byte{der}, nil) == nil { panic("Ordinary certificate-name verification was bypassed") }
+        fmt.Println("TLS policy verified: ordinary profiles verify certificates; only explicit legacy test mode skips checks")
+        return
+    }
     if _, err := serial.LoadJSONConfig(os.Stdin); err != nil {
         fmt.Fprintln(os.Stderr, err)
         os.Exit(1)
@@ -53,21 +78,22 @@ def main():
         root = Path(directory)
         (root / 'main.go').write_text(HARNESS)
         binary = root / 'tun-parser'
-        subprocess.run(['go', 'build', '-o', str(binary), str(root / 'main.go')], cwd=args.source.resolve(), check=True)
-        command = ['strace', '-qq', '-e', 'trace=socket', '-e', 'inject=socket:error=EACCES', str(binary)]
+        subprocess.run(['go', 'build', '-o', str(binary), str(root / 'main.go')], cwd=args.source.resolve(), check=True, timeout=600)
+        subprocess.run([str(binary), '--tls-policy'], check=True, timeout=30)
+        command = ['strace', '-f', '-qq', '-e', 'trace=socket', '-e', 'inject=socket:error=EACCES', str(binary)]
         for label, config in [('direct', direct), ('legacy HTTP import', proxied), ('current HTTP import', current), ('explicit test TLS', insecure)]:
-            fixed = subprocess.run(command, input=json.dumps(config), text=True, capture_output=True)
+            fixed = subprocess.run(command, input=json.dumps(config), text=True, capture_output=True, timeout=30)
             if fixed.returncode:
                 raise SystemExit('Full config failed (' + label + '): ' + fixed.stderr)
         unnamed = json.loads(json.dumps(proxied))
         unnamed['inbounds'][0]['settings']['name'] = ''
-        broken = subprocess.run(command, input=json.dumps(unnamed), text=True, capture_output=True)
+        broken = subprocess.run(command, input=json.dumps(unnamed), text=True, capture_output=True, timeout=30)
         if broken.returncode == 0 or 'fail to get system interface information' not in broken.stderr:
             raise SystemExit('Regression control did not reproduce blocked interface discovery: ' + broken.stderr)
         legacy = json.loads(json.dumps(proxied))
         legacy['outbounds'][0]['streamSettings'].pop('sockopt')
         legacy['outbounds'][0]['proxySettings'] = {'tag': 'http-upstream', 'transportLayer': True}
-        broken = subprocess.run(command, input=json.dumps(legacy), text=True, capture_output=True)
+        broken = subprocess.run(command, input=json.dumps(legacy), text=True, capture_output=True, timeout=30)
         if broken.returncode == 0 or 'proxySettings' not in broken.stderr or 'removed' not in broken.stderr:
             raise SystemExit('Regression control did not reproduce removed proxy field failure: ' + broken.stderr)
         print('PASS: full direct/proxied configs parse with sockets denied; both old TUN and proxy-field failures reproduced.')

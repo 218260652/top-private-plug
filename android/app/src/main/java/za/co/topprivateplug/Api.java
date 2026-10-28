@@ -20,6 +20,7 @@ final class Api {
         connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("Accept", "application/json");
         connection.setRequestProperty("X-TPP-Engines", "xray");
+        connection.setRequestProperty("X-TPP-Features", "legacy-tls-test-v1");
         if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + vault.token());
         try {
             if (data != null) {

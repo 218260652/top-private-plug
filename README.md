@@ -1,4 +1,4 @@
-# Top private Plug — 0.1.4 pilot
+# Top private Plug — 0.1.5 pilot
 
 Android VPN client and hosted account admin using imported Trojan/TCP/TLS Xray JSON only. Manual server/custom-SNI profile creation and the TPP connection path have been removed from the active admin/API and Android app.
 
@@ -12,8 +12,9 @@ Android VPN client and hosted account admin using imported Trojan/TCP/TLS Xray J
 
 The imported JSON supplies the server, TLS hostname and optional HTTP upstream. Those settings are required by the underlying protocol, but there is no separate manual SNI form. This is compatible with the supported unlocked Trojan configuration format, not a clone of NetMod's application or encrypted format. MTN/Telkom/Cell C are labels; the profile and underlying connection determine actual compatibility.
 
-## What changed in 0.1.4
+## What changed in 0.1.4 / 0.1.5
 
+- Migrate legacy upstream proxy settings to the current Xray dialerProxy field. The 0.1.5 native compatibility build supports only explicitly opted-in legacy unverified TLS; ordinary profiles continue verifying certificates. See [docs/XRAY.md](docs/XRAY.md) for the modified core and its checks.
 - Give Xray's Android TUN inbound an explicit name. This avoids the desktop interface-discovery call that produced `netlinkrib: permission denied` on Android. Android supplies the VPN file descriptor; no root permission is requested.
 - Rebuild previously stored imports on connect, applying the TUN-name and routed-DNS fixes without reimporting.
 - Use imported profiles only in the app/admin/API. Historical manual profiles remain in storage but cannot be created, assigned or connected through the active API.

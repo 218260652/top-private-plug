@@ -194,3 +194,19 @@ class XrayApiTests(unittest.IsolatedAsyncioTestCase):
         r=await self.client.post('/v1/disconnect',headers=headers,json={});self.assertEqual(r.status,200)
         with self.assertRaises(Fault): xray.heartbeat(self.store,auth['token'],{'lease':connected['lease'],'up':4,'down':8})
 
+
+    async def test_legacy_test_tls_requires_compatible_app_before_issuing_lease(self):
+        await self.login()
+        r=await self.client.post('/admin/api/xray-profiles',headers=self.headers,json={
+            'name':'Supplier test','carrier':'MTN','config':config(True),'allow_insecure':True,'enabled':True})
+        self.assertEqual(r.status,200);p=await r.json()
+        issued=self.store.issue({'label':'Test','kind':'trial','duration_seconds':60,'quota_bytes':1000,'profile_ids':[p['id']]})
+        private,public=device();auth=self.store.activate(dict(proof(self.store,private,public,'activate'),code=issued['code']))
+        headers={'Authorization':'Bearer '+auth['token'],'X-TPP-Engines':'xray'}
+        data=dict(proof(self.store,private,public,'connect'),profile_id=p['id'])
+        r=await self.client.post('/v1/connect',headers=headers,json=data);self.assertEqual(r.status,426)
+        with self.store.db() as db:
+            self.assertFalse(db.execute('SELECT 1 FROM xray_sessions WHERE account=?',(issued['account']['id'],)).fetchone())
+        headers['X-TPP-Features']='legacy-tls-test-v1'
+        r=await self.client.post('/v1/connect',headers=headers,json=data);self.assertEqual(r.status,200)
+        self.assertTrue((await r.json())['config']['outbounds'][0]['streamSettings']['tlsSettings']['allowInsecure'])
