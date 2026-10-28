@@ -166,6 +166,9 @@ def connect(store, token, data):
 
 def heartbeat(store, token, data):
     account = store.client_auth(token)
+    lease = data.get('lease')
+    if not isinstance(lease, str) or not 1 <= len(lease) <= 128:
+        raise Fault('Connection lease required')
     up, down = data.get('up'), data.get('down')
     if any(type(v) is not int or not 0 <= v <= 2**53 for v in [up, down]):
         raise Fault('Invalid byte counters')
@@ -173,7 +176,7 @@ def heartbeat(store, token, data):
         db.execute('BEGIN IMMEDIATE')
         row = db.execute('SELECT * FROM accounts WHERE id=?', (account['id'],)).fetchone()
         store.require_active(row)
-        session = db.execute('SELECT * FROM xray_sessions WHERE account=? AND lease=?', (row['id'], digest(data.get('lease', '')))).fetchone()
+        session = db.execute('SELECT * FROM xray_sessions WHERE account=? AND lease=?', (row['id'], digest(lease))).fetchone()
         if not session or session['seen'] <= store.now()-30:
             raise Fault('Connection lease expired; reconnect', 403)
         p = db.execute('SELECT * FROM profiles WHERE id=?', (session['profile'],)).fetchone()

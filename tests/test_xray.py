@@ -84,6 +84,7 @@ class XrayTests(unittest.TestCase):
     def test_stale_or_wrong_lease_rejected(self):
         r=self.connect()
         with self.assertRaises(Fault): self.beat({'lease':'wrong'})
+        with self.assertRaises(Fault): self.beat({'lease':None})
         self.clock[0]+=30
         with self.assertRaises(Fault): self.beat(r)
         newer=self.connect(); self.assertNotEqual(newer['lease'],r['lease'])
