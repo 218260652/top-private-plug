@@ -352,6 +352,10 @@ class Store:
             profile = db.execute('SELECT * FROM profiles WHERE id=? AND enabled=1', (profile_id,)).fetchone()
             if not profile or profile_id not in json.loads(row['profiles']):
                 raise Fault('This connection profile is unavailable', 403)
+            if db.execute('SELECT 1 FROM xray_profiles WHERE profile=?', (profile_id,)).fetchone():
+                raise Fault('This profile requires the Xray engine')
+            if db.execute('SELECT 1 FROM xray_sessions WHERE account=? AND seen>?', (row['id'], self.now()-30)).fetchone():
+                raise Fault('Account already connected; disconnect first', 409)
             ticket = secrets.token_urlsafe(32)
             db.execute('DELETE FROM tickets WHERE expires<=? OR account=?', (self.now(), row['id']))
             db.execute('INSERT INTO tickets VALUES(?,?,?,?,?)', (digest(ticket), row['id'], profile_id, profile['version'], self.now() + 30))

@@ -145,11 +145,13 @@ public final class MainActivity extends Activity {
     void settings() {
         add(content,text("Settings",28,TEXT,true),20);LinearLayout c=card();add(c,text("Service address",16,TEXT,true),6);add(c,text(vault.endpoint().isEmpty()?"Not configured":vault.endpoint(),13,MUTED,false),14);add(c,button("Change service address",false,v->endpointDialog()),0);
         c=card();add(c,text("Connection security",18,TEXT,true),12);add(c,text("TLS 1.2 / 1.3 encryption\nCertificate checks depend on the selected profile\nDevice keys kept in Android Keystore\nGateway or app controls depend on the selected profile",14,MUTED,false),10);add(c,text("SNI, host and port are managed by your admin. Profile updates require reconnecting.",12,MUTED,false),0);
+        c=card();add(c,text("Open-source engine",18,TEXT,true),12);add(c,text("AndroidLibXrayLite · LGPL-3.0\nXray-core · MPL-2.0",14,MUTED,false),10);
+        add(c,button("Engine notices and licenses",false,v->showLicenses()),0);
         c=card();add(c,text("Privacy & service",18,TEXT,true),12);add(c,text("Your service stores your activation time, device public key, access status and upload/download byte totals. This app does not request contacts, location or media access.\n\nTPP carries IPv4 and blocks IPv6; Xray profiles route both through the tunnel. MTN, Telkom and Cell C labels do not guarantee network compatibility or provide mobile data. An existing internet connection is required.\n\nDisconnecting or a failed connection restores your normal network. Always-on VPN and a kill switch are not included in this pilot.",13,MUTED,false),0);
         add(content,button("Activate / recover access",false,v->codeDialog(false)),15);
         add(content,button("WhatsApp: "+PurchaseRequest.DISPLAY_PHONE,false,v->purchaseDialog(account!=null)),15);
         add(content,button("Forget access on this phone",false,v->new AlertDialog.Builder(this).setTitle("Forget access?").setMessage("This removes the local login. Your subscription keeps its original expiry. You can recover it with the same code on this installation.").setPositiveButton("Forget",(d,n)->{stopService(new Intent(this,TunnelService.class));try{vault.token("");}catch(Exception ignored){}account=null;profiles=new JSONArray();tab="Home";render();}).setNegativeButton("Cancel",null).show()),20);
-        add(content,text("Top private Plug · 0.1.2 pilot\nOriginal client and service · TPP/1 transport",11,MUTED,false),20);
+        add(content,text("Top private Plug · 0.1.3 pilot\nTPP/1 and Trojan / Xray support",11,MUTED,false),20);
     }
     void purchaseDialog(boolean topUp) {
         String[] options={"7 days", "15 days", "30 days", "Custom duration or data top-up"};
@@ -161,7 +163,22 @@ public final class MainActivity extends Activity {
                 catch (ActivityNotFoundException error) { message("Install WhatsApp or a browser, or contact "+PurchaseRequest.DISPLAY_PHONE+" to arrange payment."); }
             }).setNegativeButton("Cancel",null).show();
     }
-    JSONArray carrierProfiles() { JSONArray list=new JSONArray();for(int i=0;i<profiles.length();i++){JSONObject p=profiles.optJSONObject(i);if(p!=null&&carrier.equals(p.optString("carrier")))list.put(p);}return list; }
+    void showLicenses() {
+        try {
+            StringBuilder text = new StringBuilder();
+            for(String path : new String[]{"licenses/NOTICE.txt","licenses/LGPL-3.0.txt","licenses/GPL-3.0.txt","licenses/MPL-2.0.txt"}) {
+                try(java.io.InputStream input=getAssets().open(path)) {
+                    java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();byte[] buf=new byte[4096];int n;
+                    while((n=input.read(buf))!=-1)bytes.write(buf,0,n);
+                    text.append(bytes.toString("UTF-8")).append("\n\n");
+                }
+            }
+            TextView body=text(text.toString(),12,TEXT,false);body.setPadding(dp(16),dp(16),dp(16),dp(16));
+            ScrollView scroll=new ScrollView(this);scroll.addView(body);
+            new AlertDialog.Builder(this).setTitle("Engine licenses").setView(scroll).setPositiveButton("Close",null).show();
+        } catch(Exception error) { message("License texts are included in the APK assets."); }
+    }
+    JSONArray carrierProfiles() { JSONArray list=new JSONArray();for(int i=0;i<profiles.length();i++){JSONObject p=profiles.optJSONObject(i);if(p!=null&&(carrier.equals(p.optString("carrier"))||"Any".equals(p.optString("carrier"))))list.put(p);}return list; }
     void toggle() {
         if(busy)return;
         if(!"Disconnected".equals(TunnelService.state)){startService(new Intent(this,TunnelService.class).setAction("STOP"));handler.postDelayed(this::render,300);return;}

@@ -119,7 +119,7 @@ def save(store, data, profile_id=None):
         raise Fault('Testing and enabled options must be boolean')
     config, address, server_port, sni, insecure = normalize(data.get('config'), allow)
     name, carrier = data.get('name', ''), data.get('carrier')
-    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80 or carrier not in ['MTN', 'Telkom', 'Cell C']:
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80 or carrier not in ['MTN', 'Telkom', 'Cell C', 'Any']:
         raise Fault('Provide a profile name and network label')
     with store.db() as db:
         db.execute('BEGIN IMMEDIATE')
@@ -155,6 +155,7 @@ def connect(store, token, data):
         active_x = db.execute('SELECT 1 FROM xray_sessions WHERE account=? AND seen>?', (row['id'], store.now()-30)).fetchone()
         if active or active_x:
             raise Fault('Account already connected; disconnect first', 409)
+        db.execute('DELETE FROM tickets WHERE account=?', (row['id'],))
         lease = secrets.token_urlsafe(32)
         db.execute('DELETE FROM xray_sessions WHERE account=?', (row['id'],))
         db.execute('INSERT INTO xray_sessions(account,profile,version,lease,seen,up,down) VALUES(?,?,?,?,?,0,0)',
@@ -189,3 +190,25 @@ def heartbeat(store, token, data):
     if not allowed:
         raise Fault('Data allowance exhausted', 403)
     return {'ok': True, 'lease_seconds': 30, 'enforcement': 'app-reported'}
+
+
+def disconnect(store, token, data):
+    account = store.client_auth(token)
+    lease = data.get('lease')
+    if not isinstance(lease, str):
+        raise Fault('Connection lease required')
+    with store.db() as db:
+        db.execute('DELETE FROM xray_sessions WHERE account=? AND lease=?', (account['id'], digest(lease)))
+    return {'ok': True}
+
+
+def toggle(store, profile_id, data):
+    if set(data) != {'enabled'} or type(data['enabled']) is not bool:
+        raise Fault('Provide enabled as a boolean')
+    with store.db() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute('SELECT 1 FROM xray_profiles WHERE profile=?', (profile_id,)).fetchone():
+            raise Fault('Imported profile not found', 404)
+        db.execute('UPDATE profiles SET enabled=?,version=version+1 WHERE id=?', (int(data['enabled']), profile_id))
+        store.audit(db, 'xray_profile_enabled' if data['enabled'] else 'xray_profile_disabled', profile_id)
+    return store.get_profile(profile_id)

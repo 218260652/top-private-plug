@@ -66,6 +66,11 @@ class XrayTests(unittest.TestCase):
         self.clock[0]+=61
         with self.assertRaises(Fault): self.beat(r)
 
+    def test_disable_import_revokes_without_exposing_password(self):
+        r=self.connect(); p=xray.toggle(self.store,self.profile['id'],{'enabled':False})
+        self.assertFalse(p['enabled']); self.assertNotIn('test-secret-only',json.dumps(p))
+        with self.assertRaises(Fault): self.beat(r)
+
     def test_changed_profile_revokes_lease(self):
         r=self.connect(); xray.save(self.store,self.data,self.profile['id'])
         with self.assertRaises(Fault): self.beat(r)
@@ -82,6 +87,15 @@ class XrayTests(unittest.TestCase):
         self.clock[0]+=30
         with self.assertRaises(Fault): self.beat(r)
         newer=self.connect(); self.assertNotEqual(newer['lease'],r['lease'])
+
+    def test_old_disconnect_does_not_revoke_new_connection(self):
+        old=self.connect(); self.clock[0]+=30; newer=self.connect()
+        xray.disconnect(self.store,self.auth['token'],{'lease':old['lease']})
+        self.assertTrue(self.beat(newer)['ok'])
+
+    def test_plain_tpp_cannot_use_imported_profile(self):
+        with self.assertRaises(Fault):
+            self.store.connect(self.auth['token'],dict(proof(self.store,self.private,self.public,'connect'),profile_id=self.profile['id']))
 
     def test_duplicate_live_session_rejected(self):
         self.connect()

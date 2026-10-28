@@ -129,6 +129,12 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     async def xray_import(request):
         return web.json_response(xray.save(store, await body(request), request.match_info.get('id')))
 
+    async def xray_toggle(request):
+        return web.json_response(xray.toggle(store, request.match_info['id'], await body(request)))
+
+    async def xray_disconnect(request):
+        return web.json_response(xray.disconnect(store, token(request), await body(request)))
+
     async def xray_heartbeat(request):
         return web.json_response(xray.heartbeat(store, token(request), await body(request)))
 
@@ -197,7 +203,9 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     app.router.add_post('/admin/api/profiles', profile_save)
     app.router.add_put('/admin/api/profiles/{id}', profile_save)
     app.router.add_post('/admin/api/xray-profiles', xray_import)
+    app.router.add_patch('/admin/api/xray-profiles/{id}', xray_toggle)
     app.router.add_put('/admin/api/xray-profiles/{id}', xray_import)
+    app.router.add_post('/v1/xray/disconnect', xray_disconnect)
     app.router.add_post('/v1/xray/heartbeat', xray_heartbeat)
     app.router.add_post('/v1/challenge', challenge)
     app.router.add_post('/v1/activate', activate)

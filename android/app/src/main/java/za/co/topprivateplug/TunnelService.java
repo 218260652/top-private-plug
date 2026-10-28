@@ -40,6 +40,7 @@ public final class TunnelService extends VpnService {
     private volatile XrayEngine xray;
     private final Object xrayLock = new Object();
     private volatile long leaseDeadline;
+    private String xrayLease;
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && "STOP".equals(intent.getAction())) { stopTunnel(); stopSelf(); return START_NOT_STICKY; }
@@ -131,17 +132,19 @@ public final class TunnelService extends VpnService {
                 else if (bytes[0] == 4) throw new Exception(new String(bytes,1,bytes.length-1,"UTF-8"));
                 else throw new Exception("Invalid gateway packet.");
             }
+        } catch (LinkageError error) {
+            detail = "The Xray engine could not load on this phone. Install the complete current APK.";
         } catch (Exception error) {
             if (running.get()) detail = error.getMessage() == null ? "Connection failed." : error.getMessage();
         } finally {
             stopTunnel(); stopSelf();
-            try { new Api(new Vault(this)).request("/v1/disconnect", new JSONObject(), true); } catch (Exception ignored) {}
+            if (xrayLease != null) try { new Api(new Vault(this)).request("/v1/xray/disconnect", new JSONObject().put("lease", xrayLease), true); } catch (Exception ignored) {}
         }
     }
     private void runXray(Api api, JSONObject result) throws Exception {
         JSONObject profile = result.getJSONObject("profile");
         if (!running.get()) return;
-        String lease = result.getString("lease");
+        String lease = result.getString("lease"); xrayLease = lease;
         leaseDeadline = android.os.SystemClock.elapsedRealtime() + 30000;
         // The app UID bypasses the TUN, preventing loops for both native sockets and API calls.
         Builder builder = new Builder().setSession("Top private Plug · " + profile.getString("name"))
