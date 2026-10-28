@@ -55,7 +55,7 @@ final class XrayEngine {
     void start(String config, int fd) throws Exception {
         JSONObject parsed = new JSONObject(config);
         collectSecrets(parsed);
-        parsed.put("log", new JSONObject().put("loglevel", "warning"));
+        parsed.put("log", new JSONObject().put("loglevel", "info"));
         core.startLoop(parsed.toString(), fd);
     }
     String diagnostic() { return warning; }
