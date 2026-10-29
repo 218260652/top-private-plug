@@ -1,0 +1,24 @@
+name: Deliver existing verified pilot archive
+on:
+  push:
+    branches: [codex/connection-report-0.1.10]
+    paths: ['.github/workflows/deliver-pilot.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Package the existing verified release without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: pilot-0.1.11-a0883fa-40926346915-1
+        run: |
+          gh release download "$RELEASE_TAG" --pattern Top-private-Plug-0.1.11-pilot.apk
+          printf "%s\n" "99516c9b6de3e83e1af3e4716a4f9b26056409e3194ef8fe68fa66a393ac79ef  Top-private-Plug-0.1.11-pilot.apk" | sha256sum -c -
+          zip -9 Top-private-Plug-0.1.11-pilot.zip Top-private-Plug-0.1.11-pilot.apk
+          gh release upload "$RELEASE_TAG" Top-private-Plug-0.1.11-pilot.zip
+          sha256sum Top-private-Plug-0.1.11-pilot.zip
