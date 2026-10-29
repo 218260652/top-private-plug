@@ -8,6 +8,8 @@ import android.content.Intent;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.os.Handler;
+import android.os.Looper;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.JSONObject;
 
@@ -18,14 +20,16 @@ public final class TunnelService extends VpnService {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile ParcelFileDescriptor tun;
     private Thread worker, pinger;
-    private boolean foreground;
+    private volatile boolean foreground;
+    private final AtomicBoolean stopping = new AtomicBoolean(false);
+    private final Handler main = new Handler(Looper.getMainLooper());
     private volatile XrayEngine xray;
     private final Object xrayLock = new Object();
     private volatile long leaseDeadline;
     private String xrayLease;
     private volatile String phase = "Starting VPN service";
 
-    private void progress(String message) throws Exception {
+    private synchronized void progress(String message) throws Exception {
         if (!running.get()) throw new Exception("Connection cancelled.");
         phase = message;
         detail = message + "…";
@@ -33,10 +37,11 @@ public final class TunnelService extends VpnService {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && "STOP".equals(intent.getAction())) { stopTunnel(); stopSelf(); return START_NOT_STICKY; }
+        if (intent != null && "STOP".equals(intent.getAction())) { stopTunnel(); return START_NOT_STICKY; }
         if (intent == null) { stopSelf(startId); return START_NOT_STICKY; }
-        if ((worker != null && worker.isAlive()) || !running.compareAndSet(false, true)) return START_NOT_STICKY;
+        if (stopping.get() || (worker != null && worker.isAlive()) || !running.compareAndSet(false, true)) return START_NOT_STICKY;
         if (VpnService.prepare(this) != null) { running.set(false); stopSelf(); return START_NOT_STICKY; }
+        state = "Connecting"; detail = "Starting VPN service…";
         showNotification("Connecting securely…");
         final String profileId = intent.getStringExtra("profile_id");
         worker = new Thread(() -> runTunnel(profileId), "tpp-tunnel"); worker.start();
@@ -55,7 +60,10 @@ public final class TunnelService extends VpnService {
         foreground = true;
     }
     private void runTunnel(String profileId) {
-        state = "Connecting"; detail = "Starting VPN service…"; uploaded = downloaded = 0; latency = -1;
+        synchronized (this) {
+            if (!running.get()) return;
+            state = "Connecting"; detail = "Starting VPN service…"; uploaded = downloaded = 0; latency = -1;
+        }
         phase = "Starting VPN service";
         xrayLease = null;
         leaseDeadline = android.os.SystemClock.elapsedRealtime() + 75000;
@@ -66,8 +74,7 @@ public final class TunnelService extends VpnService {
                         ? "Timed out: " + phase + ". Share this startup stage with support."
                         : "Account check timed out. Reconnect when the service is reachable.";
                     // Publish failure before cleanup, including if native startup is blocked.
-                    state = "Disconnected";
-                    stopTunnel(); stopSelf(); return;
+                    stopTunnel(); return;
                 }
                 try { Thread.sleep(500); } catch (InterruptedException ignored) { return; }
             }
@@ -78,7 +85,7 @@ public final class TunnelService extends VpnService {
             if (!"xray".equals(result.optString("engine"))) throw new Exception("Only imported connection profiles are supported. Ask your admin to replace this profile.");
             runXray(api, result);
         } catch (LinkageError error) {
-            detail = "The Xray engine could not load on this phone. Install the complete current APK.";
+            if (running.get()) detail = "The Xray engine could not load on this phone. Install the complete current APK.";
         } catch (Exception error) {
             if (running.get()) {
                 String reason = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
@@ -88,14 +95,14 @@ public final class TunnelService extends VpnService {
                 if (engine != null && !engine.diagnostic().isEmpty()) detail += "\nEngine: " + engine.diagnostic();
             }
         } finally {
-            stopTunnel(); stopSelf();
+            stopTunnel();
             if (xrayLease != null) try { new Api(new Vault(this)).request("/v1/xray/disconnect", new JSONObject().put("lease", xrayLease), true); } catch (Exception ignored) {}
         }
     }
     private void runXray(Api api, JSONObject result) throws Exception {
         JSONObject profile = result.getJSONObject("profile");
-        if (!running.get()) return;
         String lease = result.getString("lease"); xrayLease = lease;
+        if (!running.get()) return;
         leaseDeadline = android.os.SystemClock.elapsedRealtime() + 30000;
         progress("Creating the Android VPN interface");
         // The app UID bypasses the TUN, preventing loops for both native sockets and API calls.
@@ -116,11 +123,16 @@ public final class TunnelService extends VpnService {
             engine.start(config.toString(), tun.getFd());
         }
         progress("Checking HTTPS traffic through the Xray tunnel");
-        latency = engine.probe(new Vault(this).endpoint() + "/health");
-        if (!running.get()) return;
-        state = "Connected";
-        detail = profile.optBoolean("insecure_tls") ? "Test profile: server certificate verification is disabled." : "Xray / TLS · traffic check passed";
-        showNotification(detail);
+        // Use the pinned core's HTTPS connectivity target. Admin-host reachability
+        // is checked independently by authenticated API calls and heartbeats.
+        latency = engine.probe("");
+        if (latency < 0) throw new Exception("The tunnel HTTPS check failed.");
+        synchronized (this) {
+            if (!running.get()) return;
+            state = "Connected";
+            detail = profile.optBoolean("insecure_tls") ? "Test profile: server certificate verification is disabled." : "Xray / TLS · traffic check passed";
+            showNotification(detail);
+        }
         while (running.get() && engine.running()) {
             synchronized (xrayLock) {
                 if (!running.get()) break;
@@ -139,22 +151,34 @@ public final class TunnelService extends VpnService {
             leaseDeadline = android.os.SystemClock.elapsedRealtime() + 30000;
             try { Thread.sleep(5000); } catch (InterruptedException ignored) { break; }
         }
+        if (running.get()) throw new Exception("The Xray engine stopped unexpectedly.");
     }
     private void closeTransport() {
+        try { if (tun != null) { tun.close(); tun = null; } } catch (Exception ignored) {}
         synchronized (xrayLock) {
             if (xray != null) { xray.stop(); xray = null; }
+            try { if (tun != null) { tun.close(); tun = null; } } catch (Exception ignored) {}
         }
-        try { if (tun != null) { tun.close(); tun = null; } } catch (Exception ignored) {}
     }
-    private void stopTunnel() {
-        running.set(false); closeTransport();
+    private synchronized void stopTunnel() {
+        running.set(false);
+        if (!stopping.compareAndSet(false, true)) return;
+        state = "Disconnecting";
         if (pinger != null) pinger.interrupt();
-        state = "Disconnected";
-        if (foreground) { stopForeground(STOP_FOREGROUND_REMOVE); foreground = false; }
+        if (worker != null) worker.interrupt();
+        // Native startup holds xrayLock and stopLoop can wait on native I/O.
+        // Lifecycle callbacks must never acquire that lock or call native shutdown.
+        new Thread(() -> {
+            try { closeTransport(); }
+            finally {
+                main.post(() -> {
+                    if (foreground) { stopForeground(STOP_FOREGROUND_REMOVE); foreground = false; }
+                    state = "Disconnected";
+                    stopSelf();
+                });
+            }
+        }, "tpp-tunnel-cleanup").start();
     }
-    @Override public void onRevoke() { stopTunnel(); stopSelf(); }
+    @Override public void onRevoke() { stopTunnel(); }
     @Override public void onDestroy() { stopTunnel(); super.onDestroy(); }
 }
-
-
-

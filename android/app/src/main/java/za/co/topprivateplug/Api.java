@@ -8,6 +8,10 @@ import java.net.URL;
 import javax.net.ssl.HttpsURLConnection;
 
 final class Api {
+    static final class HttpError extends Exception {
+        final int status;
+        HttpError(int status, String message) { super(message); this.status=status; }
+    }
     interface Progress { void stage(String message) throws Exception; }
     private final Vault vault;
     Api(Vault vault) { this.vault = vault; }
@@ -39,7 +43,7 @@ final class Api {
                 while ((size = input.read(buffer)) != -1) { bytes.write(buffer, 0, size); if (bytes.size() > 1024 * 1024) throw new Exception("Service response is too large."); }
             }
             JSONObject result = new JSONObject(bytes.toString("UTF-8"));
-            if (status < 200 || status >= 300) throw new Exception(result.optString("error", "Service request failed."));
+            if (status < 200 || status >= 300) throw new HttpError(status, result.optString("error", "Service request failed."));
             return result;
         } finally { connection.disconnect(); }
     }

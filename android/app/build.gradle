@@ -2,7 +2,7 @@ plugins { id 'com.android.application' }
 android {
     namespace 'za.co.topprivateplug'
     compileSdk 35
-    defaultConfig { applicationId 'za.co.topprivateplug'; minSdk 26; targetSdk 35; versionCode 8; versionName '0.1.7-pilot' }
+    defaultConfig { applicationId 'za.co.topprivateplug'; minSdk 26; targetSdk 35; versionCode 9; versionName '0.1.8-pilot' }
     compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
     buildTypes { release { minifyEnabled false } }
 }

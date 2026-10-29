@@ -46,17 +46,18 @@ public final class MainActivity extends Activity {
     private JSONArray profiles = new JSONArray(), points = new JSONArray();
     private String tab = "Home", carrier = "MTN", selectedProfile = "";
     private String lastError = "";
-    private boolean busy, visible;
+    private boolean busy, refreshing, visible;
     private int graphHours = 1;
     private long nextAccountRefresh;
     private String renderedTunnelState = "", renderedTunnelDetail = "";
     private final ExecutorService network = Executors.newSingleThreadExecutor();
+    private final ExecutorService backgroundNetwork = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (!visible) return;
             long now = android.os.SystemClock.elapsedRealtime();
-            if (!busy && !vault.token().isEmpty() && now >= nextAccountRefresh) {
+            if (!busy && !refreshing && !vault.token().isEmpty() && now >= nextAccountRefresh) {
                 nextAccountRefresh = now + ("Connected".equals(TunnelService.state) ? 10000 : 20000);
                 refresh();
             }
@@ -77,7 +78,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() { super.onResume(); visible=true; handler.removeCallbacks(poll); handler.post(poll); render(); }
     @Override protected void onPause() { visible=false; handler.removeCallbacks(poll); super.onPause(); }
-    @Override protected void onDestroy() { network.shutdownNow(); super.onDestroy(); }
+    @Override protected void onDestroy() { network.shutdownNow(); backgroundNetwork.shutdownNow(); super.onDestroy(); }
     int dp(float n) { return (int)(n*getResources().getDisplayMetrics().density+.5f); }
     GradientDrawable shape(int color, int border, int radius) { GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));if(border!=0)d.setStroke(dp(1),border);return d; }
     TextView text(String value, int size, int color, boolean bold) { TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(color);t.setLineSpacing(dp(3),1);if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);return t; }
@@ -159,7 +160,7 @@ public final class MainActivity extends Activity {
         add(content,button("Activate / recover access",false,v->codeDialog(false)),15);
         add(content,button("WhatsApp: "+PurchaseRequest.DISPLAY_PHONE,false,v->purchaseDialog(account!=null)),15);
         add(content,button("Forget access on this phone",false,v->new AlertDialog.Builder(this).setTitle("Forget access?").setMessage("This removes the local login. Your subscription keeps its original expiry. You can recover it with the same code on this installation.").setPositiveButton("Forget",(d,n)->{stopService(new Intent(this,TunnelService.class));try{vault.token("");}catch(Exception ignored){}account=null;profiles=new JSONArray();tab="Home";render();}).setNegativeButton("Cancel",null).show()),20);
-        add(content,text("Top private Plug · 0.1.7 pilot\nImported VLESS / Trojan / Xray profiles",11,MUTED,false),20);
+        add(content,text("Top private Plug · 0.1.8 pilot\nImported VLESS / Trojan / Xray profiles",11,MUTED,false),20);
     }
     void purchaseDialog(boolean topUp) {
         String[] options={"7 days", "15 days", "30 days", "Custom duration or data top-up"};
@@ -188,6 +189,7 @@ public final class MainActivity extends Activity {
     }
     JSONArray carrierProfiles() { JSONArray list=new JSONArray();for(int i=0;i<profiles.length();i++){JSONObject p=profiles.optJSONObject(i);if(p!=null&&"xray".equals(p.optString("engine"))&&(carrier.equals(p.optString("carrier"))||"Any".equals(p.optString("carrier"))))list.put(p);}return list; }
     void toggle() {
+        if("Disconnecting".equals(TunnelService.state)){message("The tunnel is closing. Please wait before reconnecting.");return;}
         if(!"Disconnected".equals(TunnelService.state)){startService(new Intent(this,TunnelService.class).setAction("STOP"));handler.postDelayed(this::render,300);return;}
         if(busy)return;
         if(account==null||!account.optString("status").equals("active")){message("Activate an account with available time and data first.");return;}
@@ -207,7 +209,7 @@ public final class MainActivity extends Activity {
         if(vault.endpoint().isEmpty()){endpointDialog();return;}
         EditText input=new EditText(this);input.setSingleLine(true);input.setHint("TPP-…");input.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);input.setPadding(dp(24),dp(16),dp(24),dp(16));
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle(trial?"Enter trial code":"Enter activation code").setView(input).setPositiveButton("Activate",null).setNegativeButton("Cancel",null).create();
-        dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String code=input.getText().toString().trim();if(code.isEmpty()){input.setError("Enter your code");return;}dialog.dismiss();runNetwork(()->{JSONObject a=api.activate(code);JSONObject p=api.request("/v1/profiles",null,true);handler.post(()->{account=a;profiles=p.optJSONArray("profiles");chooseCarrier();tab="Home";render();message("Access activated. The server has recorded your start time.");});});}));dialog.show();
+        dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String code=input.getText().toString().trim();if(code.isEmpty()){input.setError("Enter your code");return;}dialog.dismiss();runNetwork(()->{JSONObject a=api.activate(code);JSONObject p=api.request("/v1/profiles",null,true);handler.post(()->{lastError="";account=a;profiles=p.optJSONArray("profiles");chooseCarrier();tab="Home";render();message("Access activated. The server has recorded your start time.");});});}));dialog.show();
     }
     void endpointDialog() {
         EditText input=new EditText(this);input.setSingleLine(true);input.setText(vault.endpoint());input.setHint("https://admin.your-domain.co.za");input.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);input.setPadding(dp(24),dp(16),dp(24),dp(16));
@@ -216,9 +218,29 @@ public final class MainActivity extends Activity {
     }
     interface Work { void run() throws Exception; }
     void runNetwork(Work work) { runNetwork(work,false); }
-    void runNetwork(Work work,boolean quiet) { if(busy)return;busy=true;network.execute(()->{try{work.run();handler.post(()->lastError="");}catch(Exception error){handler.post(()->{if(quiet)lastError="Account refresh failed: "+(error.getMessage()==null?"check your internet connection.":error.getMessage());else message(error.getMessage()==null?"Connection failed.":error.getMessage());});}finally{handler.post(()->{busy=false;if(visible)render();});}}); }
+    void runNetwork(Work work,boolean quiet) {
+        if (quiet ? refreshing : busy) return;
+        if (quiet) refreshing=true; else busy=true;
+        if (!quiet) render();
+        final String requestToken=vault.token(), requestEndpoint=vault.endpoint();
+        (quiet ? backgroundNetwork : network).execute(()->{
+            try { work.run(); handler.post(()->{if(requestToken.equals(vault.token())&&requestEndpoint.equals(vault.endpoint()))lastError="";}); }
+            catch(Exception error) {
+                handler.post(()->{
+                    if(!requestToken.equals(vault.token())||!requestEndpoint.equals(vault.endpoint()))return;
+                    if(error instanceof Api.HttpError && ((Api.HttpError)error).status==401 && !requestToken.isEmpty()) {
+                        try { vault.token(""); } catch(Exception ignored) {}
+                        account=null;profiles=new JSONArray();points=new JSONArray();
+                        lastError="Your access is no longer valid. Ask your admin for an active code, then activate it here.";
+                        stopService(new Intent(this,TunnelService.class));
+                    } else if(quiet)lastError="Account refresh failed: "+(error.getMessage()==null?"check your internet connection.":error.getMessage());
+                    else message(error.getMessage()==null?"Connection failed.":error.getMessage());
+                });
+            } finally { handler.post(()->{if(quiet)refreshing=false;else busy=false;if(visible)render();}); }
+        });
+    }
     void chooseCarrier() { if(profiles==null)profiles=new JSONArray();if(carrierProfiles().length()==0&&profiles.length()>0)carrier=profiles.optJSONObject(0).optString("carrier","MTN"); }
-    void refresh() { runNetwork(()->{JSONObject a=api.request("/v1/status",null,true);JSONArray p=api.request("/v1/profiles",null,true).getJSONArray("profiles");JSONArray history=tab.equals("Usage")?api.request("/v1/usage?hours="+graphHours,null,true).getJSONArray("points"):null;handler.post(()->{account=a;profiles=p;if(history!=null)points=history;chooseCarrier();render();});},true); }
+    void refresh() { final String token=vault.token(), endpoint=vault.endpoint(); runNetwork(()->{JSONObject a=api.request("/v1/status",null,true);JSONArray p=api.request("/v1/profiles",null,true).getJSONArray("profiles");JSONArray history=tab.equals("Usage")?api.request("/v1/usage?hours="+graphHours,null,true).getJSONArray("points"):null;handler.post(()->{if(!token.equals(vault.token())||!endpoint.equals(vault.endpoint()))return;account=a;profiles=p;if(history!=null)points=history;chooseCarrier();render();});},true); }
     void loadGraph() { if(vault.token().isEmpty())return;runNetwork(()->{JSONArray data=api.request("/v1/usage?hours="+graphHours,null,true).getJSONArray("points");handler.post(()->{points=data;render();});}); }
     void message(String value) { if(!isFinishing())new AlertDialog.Builder(this).setMessage(value).setPositiveButton("OK",null).show(); }
     String bytes(long value) { if(value>=1e9)return String.format(Locale.US,"%.2f GB",value/1e9);if(value>=1e6)return String.format(Locale.US,"%.1f MB",value/1e6);if(value>=1000)return String.format(Locale.US,"%.1f KB",value/1000.0);return value+" B"; }
