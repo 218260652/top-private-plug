@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: checks-${{ github.ref }}
@@ -86,7 +86,20 @@ jobs:
         run: |
           tar --exclude=.git --exclude=.local-signing --exclude='*.aar' --exclude='*.apk' --exclude='android/build' --exclude='__pycache__' -czf /tmp/Top-private-Plug-rebuild-source.tar.gz .
           cp /tmp/Top-private-Plug-rebuild-source.tar.gz .
+      - name: Publish verified pilot as a GitHub Release
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          tag="pilot-0.1.11-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-rebuild-source.tar.gz > SHA256SUMS
+          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.11 pilot" --prerelease --notes "Saved VLESS/Trojan starts before account verification. Connect once on Wi-Fi after updating to save the profile. Carrier zero-data operation still requires phone testing."
+          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-rebuild-source.tar.gz SHA256SUMS
+          gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Top-private-Plug-pilot-${{ github.run_number }}
@@ -94,7 +107,7 @@ jobs:
             Top-private-Plug-*-pilot.apk
             Top-private-Plug-rebuild-source.tar.gz
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
 
 
