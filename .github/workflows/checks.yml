@@ -93,10 +93,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          tag="pilot-0.1.11-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-rebuild-source.tar.gz > SHA256SUMS
-          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.11 pilot" --prerelease --notes "Saved VLESS/Trojan starts before account verification. Connect once on Wi-Fi after updating to save the profile. Carrier zero-data operation still requires phone testing."
-          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-rebuild-source.tar.gz SHA256SUMS
+          tag="pilot-0.1.12-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          zip -j Top-private-Plug-0.1.12-pilot.zip Top-private-Plug-0.1.12-pilot.apk
+          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz > SHA256SUMS
+          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.12 pilot" --prerelease --notes "Automatically save assigned connection settings during online account refresh. Missing profiles are explained before a direct account attempt. Saved VLESS/Trojan starts before account verification. Carrier zero-data operation still requires phone testing."
+          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz SHA256SUMS
           gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
         continue-on-error: true
@@ -108,6 +109,7 @@ jobs:
             Top-private-Plug-rebuild-source.tar.gz
           if-no-files-found: error
           retention-days: 1
+
 
 
 

@@ -9,7 +9,7 @@ class ApiTunnelRouteTests(unittest.TestCase):
         harness=r'''package za.co.topprivateplug;
 import java.net.*;import java.io.*;import javax.net.ssl.*;import java.security.cert.Certificate;
 public class ApiHarness {
- static Proxy last;static int calls;static FakeConnection connection;
+ static Proxy last;static int calls;static FakeConnection connection;static java.util.List<String> paths=new java.util.ArrayList<>();
  static void check(boolean b){if(!b)throw new AssertionError();}
  public static void main(String[] a)throws Exception {
   URL.setURLStreamHandlerFactory(protocol->"https".equals(protocol)?new URLStreamHandler(){
@@ -30,29 +30,50 @@ public class ApiHarness {
   Api.clearTunnel();api.request("/v1/status",null,true);check(last==null);
   check(ConnectionReport.snapshot().contains("TUNNEL_ACCOUNT /v1/challenge"));
   check(!ConnectionReport.snapshot().contains("secret-token"));
+  org.json.JSONArray profiles=new org.json.JSONArray(new org.json.JSONObject().put("id","profile-A").put("engine","xray"));
+  paths.clear();api.prepareProfiles(profiles);
+  check(vault.saved&&vault.writes==1);
+  check(paths.equals(java.util.Arrays.asList("/v1/challenge","/v1/connect","/v1/xray/disconnect")));
+  paths.clear();api.prepareProfiles(profiles);check(paths.isEmpty());
+  vault.saved=false;vault.failSave=true;paths.clear();
+  try {api.prepareProfiles(profiles);throw new AssertionError();}catch(java.io.IOException expected){}
+  check(paths.get(paths.size()-1).equals("/v1/xray/disconnect"));
+  check(!vault.saved); // a failed save cannot report readiness
+  vault.failSave=false;paths.clear();
+  api.prepareProfiles(new org.json.JSONArray(new org.json.JSONObject().put("id","legacy").put("engine","other")));
+  check(paths.isEmpty());
  }
  static class FakeConnection extends HttpsURLConnection {
-  FakeConnection(URL u){super(u);}public void connect(){}public void disconnect(){}public boolean usingProxy(){return true;}
+  FakeConnection(URL u){super(u);paths.add(u.getPath());}public void connect(){}public void disconnect(){}public boolean usingProxy(){return true;}
   public String getCipherSuite(){return "TLS-fixture";}public Certificate[] getLocalCertificates(){return null;}
   public Certificate[] getServerCertificates(){return null;}
+  public OutputStream getOutputStream(){return new ByteArrayOutputStream();}
   public int getResponseCode(){return 200;}public InputStream getInputStream(){return new ByteArrayInputStream("{}".getBytes());}
  }
 }
 class Vault {
- String origin="https://account.example";
+ boolean saved,failSave;int writes;String origin="https://account.example";
  String endpoint(){return origin;}String token(){return "secret-token";}void token(String s){}
- void bootstrap(String id,org.json.JSONObject result,String token,String origin){}
+ org.json.JSONObject bootstrap(String id){return saved?new org.json.JSONObject():null;}
+ void bootstrap(String id,org.json.JSONObject result,String token,String origin)throws Exception{
+  if(failSave)throw new java.io.IOException("fixture write failed");
+  if(!"profile-A".equals(id)||!token.equals(token())||!origin.equals(endpoint()))throw new AssertionError();
+  saved=true;writes++;
+ }
 }
 class DeviceKey {static String publicKey(){return "public";}static String sign(String s){return "signed";}}
 '''
         json_stub='''package org.json;public class JSONObject {
- public JSONObject(){}public JSONObject(String value){}public JSONObject put(String k,Object v){return this;}
- public String optString(String k){return "";}public String optString(String k,String d){return d;}
- public String getString(String k){return "value";}public JSONObject getJSONObject(String k){return this;}
+ private java.util.Map<String,Object> values=new java.util.HashMap<>();
+ public JSONObject(){}public JSONObject(String value){values.put("engine","xray");}public JSONObject put(String k,Object v){values.put(k,v);return this;}
+ public String optString(String k){return optString(k,"");}public String optString(String k,String d){return values.containsKey(k)?values.get(k).toString():d;}
+ public String getString(String k){return optString(k,"value");}public JSONObject getJSONObject(String k){return this;}
  public String toString(){return "{}";}
 }'''
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);source=root/'ApiHarness.java';source.write_text(harness)
             stub=root/'JSONObject.java';stub.write_text(json_stub)
-            subprocess.run(['javac','-d',tmp,str(source),str(stub),str(JAVA/'Api.java'),str(JAVA/'ConnectionReport.java')],check=True,capture_output=True,text=True,timeout=30)
+            array=root/'JSONArray.java';array.write_text('package org.json;public class JSONArray {private JSONObject[] values;public JSONArray(JSONObject... v){values=v;}public int length(){return values.length;}public JSONObject getJSONObject(int i){return values[i];}}')
+            subprocess.run(['javac','-d',tmp,str(source),str(stub),str(array),str(JAVA/'Api.java'),str(JAVA/'ConnectionReport.java')],check=True,capture_output=True,text=True,timeout=30)
             subprocess.run(['java','-cp',tmp,'za.co.topprivateplug.ApiHarness'],check=True,capture_output=True,text=True,timeout=10)
+

@@ -103,6 +103,8 @@ public final class TunnelService extends VpnService {
                 }
                 ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_VIA_TUNNEL);
             } else {
+                ConnectionReport.stage(ConnectionReport.Stage.NO_SAVED_PROFILE);
+                if(!NetworkState.validated(this)) throw new Exception("No saved connection settings for this profile. Use Wi-Fi once and tap Save connection settings before testing mobile data.");
                 progress("Saving the connection profile for first use; Wi-Fi or mobile data is needed once");
             }
             JSONObject result = api.connect(profileId, this::progress);
@@ -222,3 +224,4 @@ public final class TunnelService extends VpnService {
     @Override public void onRevoke() { stopTunnel(); }
     @Override public void onDestroy() { stopTunnel(); super.onDestroy(); }
 }
+

@@ -38,6 +38,8 @@ final class Api {
         connection.setReadTimeout(heartbeat ? 10000 : 45000);
         connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("Accept", "application/json");
+        // Do not reuse a direct HTTPS socket after switching to the control proxy.
+        connection.setRequestProperty("Connection", "close");
         connection.setRequestProperty("X-TPP-Engines", "xray");
         connection.setRequestProperty("X-TPP-Features", "legacy-tls-test-v1");
         if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + vault.token());
@@ -87,6 +89,24 @@ final class Api {
         vault.token(result.getString("token")); return result.getJSONObject("account");
     }
     JSONObject connect(String profile) throws Exception { return request("/v1/connect", proof("connect").put("profile_id", profile), true); }
+    void prepareProfiles(org.json.JSONArray profiles) throws Exception {
+        final String accessToken=vault.token(), origin=vault.endpoint();
+        for(int i=0;i<profiles.length();i++) {
+            JSONObject profile=profiles.getJSONObject(i);
+            String id=profile.getString("id");
+            if(!"xray".equals(profile.optString("engine")) || vault.bootstrap(id)!=null) continue;
+            if(!accessToken.equals(vault.token()) || !origin.equals(vault.endpoint())) throw new Exception("Saved access changed. Retry saving profiles.");
+            // Use the existing device-proof API so older admin servers also work.
+            // No native engine or TUN is opened; release the temporary lease immediately.
+            JSONObject result=request("/v1/connect",proof("connect").put("profile_id",id),true);
+            try {
+                if(!"xray".equals(result.optString("engine"))) throw new Exception("Unsupported connection profile.");
+                vault.bootstrap(id,result,accessToken,origin);
+            } finally {
+                request("/v1/xray/disconnect",new JSONObject().put("lease",result.getString("lease")),true);
+            }
+        }
+    }
     JSONObject connect(String profile, Progress progress) throws Exception {
         String accessToken=vault.token(), origin=vault.endpoint();
         JSONObject data = proof("connect", progress).put("profile_id", profile);
@@ -98,6 +118,7 @@ final class Api {
         return result;
     }
 }
+
 
 
 
