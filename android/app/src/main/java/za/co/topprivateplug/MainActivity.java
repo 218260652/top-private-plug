@@ -66,7 +66,7 @@ public final class MainActivity extends Activity {
         }
     };
     @Override public void onCreate(Bundle state) {
-        super.onCreate(state); vault = new Vault(this); api = new Api(vault);
+        super.onCreate(state); vault = new Vault(this); api = new Api(vault); profiles=vault.catalog(); chooseCarrier();
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setBackground(new Backdrop());
         root.setPadding(dp(22),dp(20),dp(22),dp(12));
         root.setOnApplyWindowInsetsListener((view,insets)->{
@@ -124,9 +124,10 @@ public final class MainActivity extends Activity {
         LinearLayout c=card();
         add(c,text("Access saved",25,TEXT,true),12);
         add(c,text(refreshing?"Checking your account…":"Account check needed",16,CYAN,true),12);
-        add(c,text("Your saved activation is still on this phone. Account and profile details must be loaded from the service before connecting. A failed network request does not mean your access has expired.",14,MUTED,false),18);
+        add(c,text("Your activation is saved. A saved connection profile can start VLESS first and verify your account through it. Connect once on Wi-Fi after updating to save the profile. A failed network request does not mean your access has expired.",14,MUTED,false),18);
         Button retry=button(refreshing?"Checking…":"Retry account check",true,v->refresh());
         retry.setEnabled(!refreshing&&!busy);add(c,retry,12);
+        if(hasSavedProfile()) add(c,button("Connect using saved profile",true,v->toggle()),12);
         addReportButton(c);
         add(c,button("Open service status",false,v->{
             try { startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(vault.endpoint()+"/health"))); }
@@ -178,11 +179,11 @@ public final class MainActivity extends Activity {
         c=card();add(c,text("Connection security",18,TEXT,true),12);add(c,text("TLS 1.2 / 1.3 encryption\nCertificate checks depend on the selected profile\nDevice keys kept in Android Keystore\nAccount limits checked with the service",14,MUTED,false),10);add(c,text("Connection settings come only from your admin’s imported profile. Profile updates require reconnecting.",12,MUTED,false),0);
         c=card();add(c,text("Open-source engine",18,TEXT,true),12);add(c,text("AndroidLibXrayLite · LGPL-3.0\nXray-core · MPL-2.0",14,MUTED,false),10);
         add(c,button("Engine notices and licenses",false,v->showLicenses()),0);
-        c=card();add(c,text("Privacy & service",18,TEXT,true),12);add(c,text("Your service stores your activation time, device public key, access status and upload/download byte totals. This app does not request contacts, location or media access.\n\nImported profiles route IPv4 and IPv6 through the tunnel. MTN, Telkom and Cell C labels do not guarantee network compatibility or provide mobile data. An existing internet connection is required.\n\nDisconnecting or a failed connection restores your normal network. Always-on VPN and a kill switch are not included in this pilot.",13,MUTED,false),0);
+        c=card();add(c,text("Privacy & service",18,TEXT,true),12);add(c,text("Your service stores your activation time, device public key, access status and upload/download byte totals. This app does not request contacts, location or media access.\n\nImported profiles route IPv4 and IPv6 through the tunnel after account approval. First activation and saving a profile require internet access. Saved profiles start VLESS or Trojan first, then verify your account through that connection. MTN, Telkom and Cell C labels do not guarantee network compatibility or provide mobile data.\n\nDisconnecting or a failed connection restores your normal network. Always-on VPN and a kill switch are not included in this pilot.",13,MUTED,false),0);
         add(content,button("Activate / recover access",false,v->codeDialog(false)),15);
         add(content,button("WhatsApp: "+PurchaseRequest.DISPLAY_PHONE,false,v->purchaseDialog(account!=null)),15);
         add(content,button("Forget access on this phone",false,v->new AlertDialog.Builder(this).setTitle("Forget access?").setMessage("This removes the local login. Your subscription keeps its original expiry. You can recover it with the same code on this installation.").setPositiveButton("Forget",(d,n)->{stopService(new Intent(this,TunnelService.class));try{vault.token("");}catch(Exception ignored){}account=null;profiles=new JSONArray();tab="Home";render();}).setNegativeButton("Cancel",null).show()),20);
-        add(content,text("Top private Plug · 0.1.10 pilot\nImported VLESS / Trojan / Xray profiles",11,MUTED,false),20);
+        add(content,text("Top private Plug · 0.1.11 pilot\nImported VLESS / Trojan / Xray profiles",11,MUTED,false),20);
     }
     void addReportButton(LinearLayout parent) {
         Button report=button("Connection report",false,v->showConnectionReport());
@@ -237,20 +238,28 @@ public final class MainActivity extends Activity {
         } catch(Exception error) { message("License texts are included in the APK assets."); }
     }
     JSONArray carrierProfiles() { JSONArray list=new JSONArray();for(int i=0;i<profiles.length();i++){JSONObject p=profiles.optJSONObject(i);if(p!=null&&"xray".equals(p.optString("engine"))&&(carrier.equals(p.optString("carrier"))||"Any".equals(p.optString("carrier"))))list.put(p);}return list; }
+    boolean hasSavedProfile() {
+        JSONArray available=carrierProfiles();
+        for(int i=0;i<available.length();i++) if(vault.bootstrap(available.optJSONObject(i).optString("id"))!=null) return true;
+        return false;
+    }
     void toggle() {
         if("Disconnecting".equals(TunnelService.state)){message("The tunnel is closing. Please wait before reconnecting.");return;}
         if(!"Disconnected".equals(TunnelService.state)){startService(new Intent(this,TunnelService.class).setAction("STOP"));handler.postDelayed(this::render,300);return;}
         if(busy)return;
         AccessState.State access=accessState();
         if(access==AccessState.State.ACTIVATION_REQUIRED){codeDialog(false);return;}
-        if(access==AccessState.State.CHECK_REQUIRED){
+        if(access==AccessState.State.CHECK_REQUIRED && !hasSavedProfile()){
             if(!refreshing)refresh();
             message("Your activation is saved. We need to reach the account service before connecting. Check your internet or try Wi-Fi, then retry the account check.");return;
         }
-        if(access==AccessState.State.INACTIVE){message("The service last reported your account as "+account.optString("status","unavailable")+". Retry the account check or contact your admin.");return;}
+        if(access==AccessState.State.INACTIVE && !hasSavedProfile()){message("The service last reported your account as "+account.optString("status","unavailable")+". Retry the account check or contact your admin.");return;}
         JSONArray available=carrierProfiles();if(available.length()==0){message("No assigned profile for "+carrier+".");return;}
         boolean found=false;for(int i=0;i<available.length();i++)if(available.optJSONObject(i).optString("id").equals(selectedProfile))found=true;
-        if(!found)selectedProfile=available.optJSONObject(0).optString("id");
+        if(!found) {
+            selectedProfile=available.optJSONObject(0).optString("id");
+            for(int i=0;i<available.length();i++) if(vault.bootstrap(available.optJSONObject(i).optString("id"))!=null) {selectedProfile=available.optJSONObject(i).optString("id");break;}
+        }
         new AlertDialog.Builder(this).setTitle("Connect to Top private Plug?").setMessage("Your internet traffic will pass through your service's VPN server. Upload and download both count toward your allowance.")
             .setPositiveButton("Continue",(d,n)->{Intent permission=VpnService.prepare(this);if(permission==null)startTunnel();else startActivityForResult(permission,77);}).setNegativeButton("Cancel",null).show();
     }
@@ -264,7 +273,7 @@ public final class MainActivity extends Activity {
         if(vault.endpoint().isEmpty()){endpointDialog();return;}
         EditText input=new EditText(this);input.setSingleLine(true);input.setHint("TPP-…");input.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);input.setPadding(dp(24),dp(16),dp(24),dp(16));
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle(trial?"Enter trial code":"Enter activation code").setView(input).setPositiveButton("Activate",null).setNegativeButton("Cancel",null).create();
-        dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String code=input.getText().toString().trim();if(code.isEmpty()){input.setError("Enter your code");return;}dialog.dismiss();runNetwork(()->{JSONObject a=api.activate(code);JSONObject p=api.request("/v1/profiles",null,true);handler.post(()->{lastError="";account=a;profiles=p.optJSONArray("profiles");chooseCarrier();tab="Home";render();message("Access activated. The server has recorded your start time.");});});}));dialog.show();
+        dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String code=input.getText().toString().trim();if(code.isEmpty()){input.setError("Enter your code");return;}dialog.dismiss();runNetwork(()->{JSONObject a=api.activate(code);JSONObject p=api.request("/v1/profiles",null,true);vault.catalog(p.getJSONArray("profiles"));handler.post(()->{lastError="";account=a;profiles=p.optJSONArray("profiles");chooseCarrier();tab="Home";render();message("Access activated. The server has recorded your start time.");});});}));dialog.show();
     }
     void endpointDialog() {
         EditText input=new EditText(this);input.setSingleLine(true);input.setText(vault.endpoint());input.setHint("https://admin.your-domain.co.za");input.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_URI);input.setPadding(dp(24),dp(16),dp(24),dp(16));
@@ -294,8 +303,13 @@ public final class MainActivity extends Activity {
             } finally { handler.post(()->{if(quiet)refreshing=false;else busy=false;if(visible)render();}); }
         });
     }
-    void chooseCarrier() { if(profiles==null)profiles=new JSONArray();if(carrierProfiles().length()==0&&profiles.length()>0)carrier=profiles.optJSONObject(0).optString("carrier","MTN"); }
-    void refresh() { final String token=vault.token(), endpoint=vault.endpoint(); runNetwork(()->{JSONObject a=api.request("/v1/status",null,true);JSONArray p=api.request("/v1/profiles",null,true).getJSONArray("profiles");JSONArray history=tab.equals("Usage")?api.request("/v1/usage?hours="+graphHours,null,true).getJSONArray("points"):null;handler.post(()->{if(!token.equals(vault.token())||!endpoint.equals(vault.endpoint()))return;account=a;profiles=p;if(history!=null)points=history;chooseCarrier();render();});},true); }
+    void chooseCarrier() { if(profiles==null)profiles=new JSONArray();
+        if(account==null&&!hasSavedProfile())for(int i=0;i<profiles.length();i++) {
+            JSONObject saved=profiles.optJSONObject(i);
+            if(saved!=null&&vault.bootstrap(saved.optString("id"))!=null) {carrier=saved.optString("carrier","MTN");selectedProfile=saved.optString("id");break;}
+        }
+if(carrierProfiles().length()==0&&profiles.length()>0)carrier=profiles.optJSONObject(0).optString("carrier","MTN"); }
+    void refresh() { final String token=vault.token(), endpoint=vault.endpoint(); runNetwork(()->{JSONObject a=api.request("/v1/status",null,true);JSONArray p=api.request("/v1/profiles",null,true).getJSONArray("profiles");if(token.equals(vault.token())&&endpoint.equals(vault.endpoint()))vault.catalog(p);JSONArray history=tab.equals("Usage")?api.request("/v1/usage?hours="+graphHours,null,true).getJSONArray("points"):null;handler.post(()->{if(!token.equals(vault.token())||!endpoint.equals(vault.endpoint()))return;account=a;profiles=p;if(history!=null)points=history;chooseCarrier();render();});},true); }
     void loadGraph() { if(vault.token().isEmpty())return;runNetwork(()->{JSONArray data=api.request("/v1/usage?hours="+graphHours,null,true).getJSONArray("points");handler.post(()->{points=data;render();});}); }
     void message(String value) { if(!isFinishing())new AlertDialog.Builder(this).setMessage(value).setPositiveButton("OK",null).show(); }
     String bytes(long value) { if(value>=1e9)return String.format(Locale.US,"%.2f GB",value/1e9);if(value>=1e6)return String.format(Locale.US,"%.1f MB",value/1e6);if(value>=1000)return String.format(Locale.US,"%.1f KB",value/1000.0);return value+" B"; }

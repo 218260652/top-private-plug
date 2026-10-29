@@ -15,6 +15,7 @@ import (
     "net"
     "net/http"
     "net/http/httptest"
+    "net/url"
     "os"
     "strconv"
     "strings"
@@ -95,6 +96,7 @@ func main() {
     for _, mode := range []string{"direct-working", "working", "verified-TLS-rejects-self-signed", "wrong-UUID", "proxy-rejects"} {
         var config object
         if err := json.Unmarshal(original, &config); err != nil { panic(err) }
+        delete(config, "_fixture_control")
         outbounds := config["outbounds"].([]interface{})
         tunnel := outbounds[0].(map[string]interface{})
         node := tunnel["settings"].(map[string]interface{})["vnext"].([]interface{})[0].(map[string]interface{})
@@ -131,4 +133,39 @@ func main() {
         }
         fmt.Println("PASS:", mode)
     }
+    // Exercise the actual Java-generated bootstrap policy through a real HTTP
+    // CONNECT inbound. No TUN or ordinary-device-traffic inbound is installed.
+    var boot object
+    if err := json.Unmarshal(original, &boot); err != nil { panic(err) }
+    policy := boot["_fixture_control"].(map[string]interface{}); delete(boot, "_fixture_control")
+    bootOut := boot["outbounds"].([]interface{})
+    bootNode := bootOut[0].(map[string]interface{})["settings"].(map[string]interface{})["vnext"].([]interface{})[0].(map[string]interface{})
+    bootNode["port"] = serverPort
+    bootUpstream := bootOut[1].(map[string]interface{})["settings"].(map[string]interface{})["servers"].([]interface{})[0].(map[string]interface{})
+    bootUpstream["port"] = proxyNumber
+    reservation, err = net.Listen("tcp", "127.0.0.1:0"); if err != nil { panic(err) }
+    controlPort := reservation.Addr().(*net.TCPAddr).Port; reservation.Close()
+    inbound := policy["inbound"].(map[string]interface{}); inbound["port"] = controlPort
+    if inbound["listen"] != "127.0.0.1" || inbound["protocol"] != "http" { panic("unsafe bootstrap listener") }
+    rules := policy["rules"].([]interface{}); rules[0].(map[string]interface{})["port"] = strconv.Itoa(originPort)
+    boot["inbounds"] = []interface{}{inbound}
+    boot["routing"] = object{"domainStrategy":"AsIs", "rules":rules}
+    reject.Store(false)
+    bootCore := instance(boot); defer bootCore.Close()
+    localProxy, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d",controlPort))
+    transport := &http.Transport{Proxy:http.ProxyURL(localProxy), TLSClientConfig:&tls.Config{RootCAs:roots, ServerName:"127.0.0.1"}}
+    bootClient := &http.Client{Transport:transport, Timeout:8*time.Second}
+    before := received.Load()
+    response, err := bootClient.Get(origin.URL+"/health")
+    if err != nil { panic(fmt.Sprintf("account HTTPS through bootstrap failed: %v",err)) }
+    body, err := io.ReadAll(response.Body); response.Body.Close()
+    if err != nil || string(body)!="through-vless" || received.Load()!=before+1 { panic("bootstrap account check did not traverse VLESS") }
+    fmt.Println("PASS: bootstrap account HTTPS through restricted loopback proxy")
+    before=received.Load()
+    denied, deniedErr := bootClient.Get(strings.Replace(origin.URL,"127.0.0.1","localhost",1)+"/health")
+    if denied!=nil { denied.Body.Close() }
+    if deniedErr==nil || received.Load()!=before { panic("bootstrap leaked to an unapproved target") }
+    transport.CloseIdleConnections()
+    fmt.Println("PASS: bootstrap rejects other targets before account approval")
+
 }

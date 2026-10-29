@@ -1,6 +1,14 @@
-# Top private Plug — 0.1.10 pilot
+# Top private Plug — 0.1.11 pilot
 
 Android VPN client and hosted account admin using imported VLESS or Trojan over TCP/TLS Xray JSON. Manual server/custom-SNI profile creation and the TPP connection path have been removed from the active admin/API and Android app.
+
+## VLESS-first startup in 0.1.11
+
+After updating, connect once on Wi-Fi or ordinary mobile data to save the assigned profile on the phone. The profile and its list are encrypted using Android Keystore; changing the service or access token clears them. Leases are never cached.
+
+Subsequent Connect attempts start the saved VLESS/Trojan configuration with a loopback HTTP proxy restricted to the HTTPS account origin. No Android TUN or general-traffic inbound exists before account approval. Device challenge and account verification run through that connection. Only after a fresh server authorization does the app switch to the current profile, create the full Android VPN and enable traffic. Heartbeats and account refreshes explicitly use the tunnel control proxy rather than direct mobile data. First use without a saved profile still needs internet to obtain it.
+
+Connection reports remain available in Home, recovery and Settings. They distinguish TUNNEL_ACCOUNT from DIRECT_ACCOUNT requests. See [docs/FIX-0.1.11.md](docs/FIX-0.1.11.md) for implementation and verification scope. Carrier zero-data connectivity requires a physical-device test and is not guaranteed by local or CI tests.
 
 ## Connection reports in 0.1.10
 

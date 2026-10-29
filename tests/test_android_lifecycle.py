@@ -34,6 +34,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 public class ShutdownHarness {
     static final int STOP_FOREGROUND_REMOVE=1;
+    static class Api { static void clearTunnel(){} }
     final AtomicBoolean running=new AtomicBoolean(true), stopping=new AtomicBoolean(false);
     final Object xrayLock=new Object();
     final FakeMain main=new FakeMain();

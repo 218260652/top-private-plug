@@ -6,7 +6,7 @@ import java.util.Locale;
 /** In-memory diagnostics. Accept only fixed stages, routes and error categories. */
 final class ConnectionReport {
     enum Stage {
-        START, ACCOUNT_CHALLENGE, DEVICE_PROOF, ACCOUNT_AUTHORIZATION,
+        START, SAVED_PROFILE_START, ACCOUNT_VIA_TUNNEL, ACCOUNT_CHALLENGE, DEVICE_PROOF, ACCOUNT_AUTHORIZATION,
         VPN_INTERFACE, NATIVE_START, TUNNEL_HTTPS, CONNECTED,
         CANCEL_OR_CLEANUP, CLEANUP_COMPLETE, WATCHDOG_TIMEOUT, ENGINE_LOAD_FAILED
     }
@@ -23,8 +23,9 @@ final class ConnectionReport {
             if (allowed.equals(path)) return allowed;
         return "other account request";
     }
-    static synchronized void request(String path, int status) {
-        append("DIRECT_ACCOUNT " + route(path) + (status == 0 ? " START" : " HTTP_" + status));
+    static synchronized void request(String path, int status) { request(path,status,false); }
+    static synchronized void request(String path, int status, boolean tunnel) {
+        append((tunnel?"TUNNEL_ACCOUNT ":"DIRECT_ACCOUNT ") + route(path) + (status == 0 ? " START" : " HTTP_" + status));
     }
     static synchronized void failure(String path, Throwable error) {
         append("FAILED " + (path == null ? "tunnel stage" : route(path)) + " " + category(error));
@@ -40,8 +41,8 @@ final class ConnectionReport {
         return "OTHER_ERROR";
     }
     static synchronized String snapshot() {
-        StringBuilder report = new StringBuilder("Top private Plug 0.1.10 pilot\nEvents since app launch (oldest first; last 48).\n");
-        report.append("Account calls use the underlying network, before and after tunnel startup.\n");
+        StringBuilder report = new StringBuilder("Top private Plug 0.1.11 pilot\nEvents since app launch (oldest first; last 48).\n");
+        report.append("Saved-profile startup verifies the account through VLESS/Trojan before enabling the VPN.\n");
         if (events.isEmpty()) report.append("No connection events yet. Retry the account check or connection first.\n");
         for (String event : events) report.append(event).append('\n');
         return report.toString();

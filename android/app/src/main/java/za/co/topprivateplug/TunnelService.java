@@ -27,6 +27,7 @@ public final class TunnelService extends VpnService {
     private final Object xrayLock = new Object();
     private volatile long leaseDeadline;
     private String xrayLease;
+    private int controlPort;
     private volatile String phase = "Starting VPN service";
 
     private synchronized void progress(String message) throws Exception {
@@ -83,8 +84,35 @@ public final class TunnelService extends VpnService {
         }, "tpp-xray-watchdog"); pinger.start();
         try {
             if (profileId == null) throw new Exception("Choose a connection profile.");
-            Api api = new Api(new Vault(this)); JSONObject result = api.connect(profileId, this::progress);
+            Vault vault=new Vault(this);
+            Api api = new Api(vault);
+            try(java.net.ServerSocket reservation=new java.net.ServerSocket(0,1,java.net.InetAddress.getByName("127.0.0.1"))) {
+                controlPort=reservation.getLocalPort();
+            }
+            JSONObject saved=vault.bootstrap(profileId);
+            if(saved!=null) {
+                progress("Starting saved VLESS or Trojan connection before account verification");
+                ConnectionReport.stage(ConnectionReport.Stage.SAVED_PROFILE_START);
+                synchronized(xrayLock) {
+                    if(!running.get()) return;
+                    xray=new XrayEngine(getFilesDir());
+                    // No TUN inbound or Android VPN interface exists at this stage.
+                    // Only the loopback account proxy is exposed; all other targets are blocked.
+                    xray.start(TunnelConfig.control(saved.getJSONObject("config"),vault.endpoint(),controlPort,true).toString(),0);
+                    Api.throughTunnel(vault.endpoint(),controlPort);
+                }
+                ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_VIA_TUNNEL);
+            } else {
+                progress("Saving the connection profile for first use; Wi-Fi or mobile data is needed once");
+            }
+            JSONObject result = api.connect(profileId, this::progress);
             if (!"xray".equals(result.optString("engine"))) throw new Exception("Only imported connection profiles are supported. Ask your admin to replace this profile.");
+            xrayLease=result.getString("lease");
+            leaseDeadline=android.os.SystemClock.elapsedRealtime()+30000;
+            synchronized(xrayLock) {
+                if(!running.get()) return;
+                if(xray!=null) { xray.stop(); xray=null; }
+            }
             runXray(api, result);
         } catch (LinkageError error) {
             ConnectionReport.stage(ConnectionReport.Stage.ENGINE_LOAD_FAILED);
@@ -110,7 +138,7 @@ public final class TunnelService extends VpnService {
         leaseDeadline = android.os.SystemClock.elapsedRealtime() + 30000;
         progress("Creating the Android VPN interface");
         ConnectionReport.stage(ConnectionReport.Stage.VPN_INTERFACE);
-        // The app UID bypasses the TUN, preventing loops for both native sockets and API calls.
+        // Native sockets bypass the TUN; API calls explicitly use its loopback control proxy.
         Builder builder = new Builder().setSession("Top private Plug · " + profile.getString("name"))
             .setMtu(1400).addAddress("10.99.0.2", 30).addAddress("fd00:99::2", 126)
             .addRoute("0.0.0.0", 0).addRoute("::", 0).addDnsServer("1.1.1.1").setBlocking(false);
@@ -121,12 +149,13 @@ public final class TunnelService extends VpnService {
             tun = builder.establish();
             if (tun == null) throw new Exception("Android could not create the VPN interface.");
             engine = new XrayEngine(getFilesDir()); xray = engine;
-            JSONObject config = result.getJSONObject("config");
+            JSONObject config = TunnelConfig.control(result.getJSONObject("config"),new Vault(this).endpoint(),controlPort,false);
             // Android owns the TUN. Avoid desktop name discovery (net.Interfaces).
             config.getJSONArray("inbounds").getJSONObject(0).getJSONObject("settings").put("name", "tpp0");
             progress("Starting Xray with the imported VLESS or Trojan profile");
             ConnectionReport.stage(ConnectionReport.Stage.NATIVE_START);
             engine.start(config.toString(), tun.getFd());
+            Api.throughTunnel(new Vault(this).endpoint(),controlPort);
         }
         progress("Checking HTTPS traffic through the Xray tunnel");
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
@@ -162,6 +191,7 @@ public final class TunnelService extends VpnService {
         if (running.get()) throw new Exception("The Xray engine stopped unexpectedly.");
     }
     private void closeTransport() {
+        Api.clearTunnel();
         try { if (tun != null) { tun.close(); tun = null; } } catch (Exception ignored) {}
         synchronized (xrayLock) {
             if (xray != null) { xray.stop(); xray = null; }

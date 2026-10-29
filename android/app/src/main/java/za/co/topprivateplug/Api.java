@@ -5,6 +5,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URL;
+import java.net.Proxy;
+import java.net.InetSocketAddress;
 import javax.net.ssl.HttpsURLConnection;
 
 final class Api {
@@ -14,6 +16,13 @@ final class Api {
         HttpError(int status, String message, boolean authenticated) { super(message); this.status=status; this.authenticated=authenticated; }
     }
     interface Progress { void stage(String message) throws Exception; }
+    private static volatile ControlRoute tunnelRoute;
+    static final class ControlRoute {
+        final String endpoint; final Proxy proxy;
+        ControlRoute(String endpoint,int port) { this.endpoint=endpoint; proxy=new Proxy(Proxy.Type.HTTP,new InetSocketAddress("127.0.0.1",port)); }
+    }
+    static void throughTunnel(String endpoint,int port) { tunnelRoute=new ControlRoute(endpoint,port); }
+    static void clearTunnel() { tunnelRoute=null; }
     private final Vault vault;
     Api(Vault vault) { this.vault = vault; }
     JSONObject request(String path, JSONObject data, boolean authenticated) throws Exception {
@@ -21,7 +30,9 @@ final class Api {
         if (endpoint.isEmpty()) throw new Exception("Set your service address in Settings first.");
         URL url = new URL(endpoint + path);
         if (!"https".equals(url.getProtocol())) throw new Exception("The service address must use HTTPS.");
-        HttpsURLConnection connection = (HttpsURLConnection)url.openConnection();
+        ControlRoute route=tunnelRoute;
+        if(route!=null && !route.endpoint.equals(endpoint)) throw new Exception("Disconnect before changing the account service.");
+        HttpsURLConnection connection = (HttpsURLConnection)(route==null?url.openConnection():url.openConnection(route.proxy));
         boolean heartbeat = "/v1/xray/heartbeat".equals(path);
         connection.setConnectTimeout(heartbeat ? 5000 : 12000);
         connection.setReadTimeout(heartbeat ? 10000 : 45000);
@@ -30,7 +41,7 @@ final class Api {
         connection.setRequestProperty("X-TPP-Engines", "xray");
         connection.setRequestProperty("X-TPP-Features", "legacy-tls-test-v1");
         if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + vault.token());
-        ConnectionReport.request(path, 0);
+        ConnectionReport.request(path, 0, route!=null);
         try {
             if (data != null) {
                 connection.setRequestMethod("POST"); connection.setDoOutput(true);
@@ -39,7 +50,7 @@ final class Api {
                 try (OutputStream output = connection.getOutputStream()) { output.write(bytes); }
             }
             int status = connection.getResponseCode();
-            ConnectionReport.request(path, status);
+            ConnectionReport.request(path, status, route!=null);
             InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
             if (stream == null) throw new Exception("The service did not return a response.");
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -55,7 +66,7 @@ final class Api {
             throw new Exception("Secure connection to the account service failed. Check your phone's date and time and try another internet connection. Your saved access has not been removed.", error);
         } catch (java.io.IOException error) {
             ConnectionReport.failure(path, error);
-            throw new Exception("Cannot reach the account service (" + ConnectionReport.category(error) + "). The VPN cannot start until this service is reachable. Open Connection report for details. Your saved access has not been removed.", error);
+            throw new Exception("Cannot reach the account service (" + ConnectionReport.category(error) + "). Account verification could not complete. Open Connection report for details. Your saved access has not been removed.", error);
         } finally { connection.disconnect(); }
     }
     JSONObject proof(String purpose) throws Exception {
@@ -77,10 +88,14 @@ final class Api {
     }
     JSONObject connect(String profile) throws Exception { return request("/v1/connect", proof("connect").put("profile_id", profile), true); }
     JSONObject connect(String profile, Progress progress) throws Exception {
+        String accessToken=vault.token(), origin=vault.endpoint();
         JSONObject data = proof("connect", progress).put("profile_id", profile);
         progress.stage("Authorizing account and downloading the connection profile");
         ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_AUTHORIZATION);
-        return request("/v1/connect", data, true);
+        JSONObject result=request("/v1/connect", data, true);
+        if(!accessToken.equals(vault.token()) || !origin.equals(vault.endpoint())) throw new Exception("Saved access changed during connection. Retry.");
+        if("xray".equals(result.optString("engine"))) vault.bootstrap(profile,result,accessToken,origin);
+        return result;
     }
 }
 
