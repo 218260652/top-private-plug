@@ -1,6 +1,12 @@
-# Top private Plug — 0.1.5 pilot
+# Top private Plug — 0.1.10 pilot
 
-Android VPN client and hosted account admin using imported Trojan/TCP/TLS Xray JSON only. Manual server/custom-SNI profile creation and the TPP connection path have been removed from the active admin/API and Android app.
+Android VPN client and hosted account admin using imported VLESS or Trojan over TCP/TLS Xray JSON. Manual server/custom-SNI profile creation and the TPP connection path have been removed from the active admin/API and Android app.
+
+## Connection reports in 0.1.10
+
+Home, saved-access recovery and Settings include a Connection report button. Retry a failing connection, then open the report before closing the app. It records fixed startup stages, account HTTP statuses and DNS/TCP/TLS/timeout categories without credentials or profile contents. Tap Share to open Android's chooser. See [docs/FIX-0.1.10.md](docs/FIX-0.1.10.md) for scope and phone checks.
+
+Account authorization is required before the tunnel starts. Account heartbeats also use the underlying network because the app UID bypasses the TUN. A supplier profile that works in another client does not establish reachability to this separate account service. This pilot does not claim zero-data support. Heartbeat timeouts now fit inside the 30-second lease under ordinary network conditions; the watchdog remains the final limit.
 
 ## Connect
 

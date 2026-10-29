@@ -42,6 +42,7 @@ public final class TunnelService extends VpnService {
         if (stopping.get() || (worker != null && worker.isAlive()) || !running.compareAndSet(false, true)) return START_NOT_STICKY;
         if (VpnService.prepare(this) != null) { running.set(false); stopSelf(); return START_NOT_STICKY; }
         state = "Connecting"; detail = "Starting VPN service…";
+        ConnectionReport.stage(ConnectionReport.Stage.START);
         showNotification("Connecting securely…");
         final String profileId = intent.getStringExtra("profile_id");
         worker = new Thread(() -> runTunnel(profileId), "tpp-tunnel"); worker.start();
@@ -70,6 +71,7 @@ public final class TunnelService extends VpnService {
         pinger = new Thread(() -> {
             while (running.get()) {
                 if (android.os.SystemClock.elapsedRealtime() >= leaseDeadline) {
+                    ConnectionReport.stage(ConnectionReport.Stage.WATCHDOG_TIMEOUT);
                     detail = "Connecting".equals(state)
                         ? "Timed out: " + phase + ". Share this startup stage with support."
                         : "Account check timed out. Reconnect when the service is reachable.";
@@ -85,9 +87,11 @@ public final class TunnelService extends VpnService {
             if (!"xray".equals(result.optString("engine"))) throw new Exception("Only imported connection profiles are supported. Ask your admin to replace this profile.");
             runXray(api, result);
         } catch (LinkageError error) {
+            ConnectionReport.stage(ConnectionReport.Stage.ENGINE_LOAD_FAILED);
             if (running.get()) detail = "The Xray engine could not load on this phone. Install the complete current APK.";
         } catch (Exception error) {
             if (running.get()) {
+                ConnectionReport.failure(null, error);
                 String reason = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
                 reason = reason.replaceAll("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "[redacted UUID]");
                 detail = "Failed: " + phase + ". " + reason;
@@ -105,6 +109,7 @@ public final class TunnelService extends VpnService {
         if (!running.get()) return;
         leaseDeadline = android.os.SystemClock.elapsedRealtime() + 30000;
         progress("Creating the Android VPN interface");
+        ConnectionReport.stage(ConnectionReport.Stage.VPN_INTERFACE);
         // The app UID bypasses the TUN, preventing loops for both native sockets and API calls.
         Builder builder = new Builder().setSession("Top private Plug · " + profile.getString("name"))
             .setMtu(1400).addAddress("10.99.0.2", 30).addAddress("fd00:99::2", 126)
@@ -120,9 +125,11 @@ public final class TunnelService extends VpnService {
             // Android owns the TUN. Avoid desktop name discovery (net.Interfaces).
             config.getJSONArray("inbounds").getJSONObject(0).getJSONObject("settings").put("name", "tpp0");
             progress("Starting Xray with the imported VLESS or Trojan profile");
+            ConnectionReport.stage(ConnectionReport.Stage.NATIVE_START);
             engine.start(config.toString(), tun.getFd());
         }
         progress("Checking HTTPS traffic through the Xray tunnel");
+        ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
         // Use the pinned core's HTTPS connectivity target. Admin-host reachability
         // is checked independently by authenticated API calls and heartbeats.
         latency = engine.probe("");
@@ -130,6 +137,7 @@ public final class TunnelService extends VpnService {
         synchronized (this) {
             if (!running.get()) return;
             state = "Connected";
+            ConnectionReport.stage(ConnectionReport.Stage.CONNECTED);
             detail = profile.optBoolean("insecure_tls") ? "Test profile: server certificate verification is disabled." : "Xray / TLS · traffic check passed";
             showNotification(detail);
         }
@@ -164,6 +172,7 @@ public final class TunnelService extends VpnService {
         running.set(false);
         if (!stopping.compareAndSet(false, true)) return;
         state = "Disconnecting";
+        ConnectionReport.stage(ConnectionReport.Stage.CANCEL_OR_CLEANUP);
         if (pinger != null) pinger.interrupt();
         if (worker != null) worker.interrupt();
         // Native startup holds xrayLock and stopLoop can wait on native I/O.
@@ -174,6 +183,7 @@ public final class TunnelService extends VpnService {
                 main.post(() -> {
                     if (foreground) { stopForeground(STOP_FOREGROUND_REMOVE); foreground = false; }
                     state = "Disconnected";
+                    ConnectionReport.stage(ConnectionReport.Stage.CLEANUP_COMPLETE);
                     stopSelf();
                 });
             }

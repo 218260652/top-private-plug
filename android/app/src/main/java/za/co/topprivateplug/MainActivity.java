@@ -116,6 +116,7 @@ public final class MainActivity extends Activity {
         JSONArray available=carrierProfiles();
         if(available.length()==0)add(connection,text("No enabled "+carrier+" profile is assigned. Ask your service admin.",12,MUTED,false),0);
         else if(available.length()>1){String[] names=new String[available.length()];for(int i=0;i<names.length;i++)names[i]=available.optJSONObject(i).optString("name");add(connection,button("Choose connection profile",false,v->new AlertDialog.Builder(this).setTitle("Connection profile").setItems(names,(d,n)->{selectedProfile=available.optJSONObject(n).optString("id");message(names[n]+" selected.");}).show()),0);}
+        addReportButton(connection);
         planCard();
         LinearLayout live=card();add(live,text("Live session",16,TEXT,true),14);add(live,text("↑ "+bytes(TunnelService.uploaded)+"     ↓ "+bytes(TunnelService.downloaded),17,CYAN,true),8);add(live,text(TunnelService.latency<0?"Latency —":("Gateway latency "+TunnelService.latency+" ms"),12,MUTED,false),0);
     }
@@ -126,6 +127,7 @@ public final class MainActivity extends Activity {
         add(c,text("Your saved activation is still on this phone. Account and profile details must be loaded from the service before connecting. A failed network request does not mean your access has expired.",14,MUTED,false),18);
         Button retry=button(refreshing?"Checking…":"Retry account check",true,v->refresh());
         retry.setEnabled(!refreshing&&!busy);add(c,retry,12);
+        addReportButton(c);
         add(c,button("Open service status",false,v->{
             try { startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(vault.endpoint()+"/health"))); }
             catch(ActivityNotFoundException error) { message("Open "+vault.endpoint()+"/health in your browser."); }
@@ -172,6 +174,7 @@ public final class MainActivity extends Activity {
     }
     void settings() {
         add(content,text("Settings",28,TEXT,true),20);LinearLayout c=card();add(c,text("Service address",16,TEXT,true),6);add(c,text(vault.endpoint().isEmpty()?"Not configured":vault.endpoint(),13,MUTED,false),14);add(c,button("Change service address",false,v->endpointDialog()),0);
+        addReportButton(c);
         c=card();add(c,text("Connection security",18,TEXT,true),12);add(c,text("TLS 1.2 / 1.3 encryption\nCertificate checks depend on the selected profile\nDevice keys kept in Android Keystore\nAccount limits checked with the service",14,MUTED,false),10);add(c,text("Connection settings come only from your admin’s imported profile. Profile updates require reconnecting.",12,MUTED,false),0);
         c=card();add(c,text("Open-source engine",18,TEXT,true),12);add(c,text("AndroidLibXrayLite · LGPL-3.0\nXray-core · MPL-2.0",14,MUTED,false),10);
         add(c,button("Engine notices and licenses",false,v->showLicenses()),0);
@@ -179,7 +182,34 @@ public final class MainActivity extends Activity {
         add(content,button("Activate / recover access",false,v->codeDialog(false)),15);
         add(content,button("WhatsApp: "+PurchaseRequest.DISPLAY_PHONE,false,v->purchaseDialog(account!=null)),15);
         add(content,button("Forget access on this phone",false,v->new AlertDialog.Builder(this).setTitle("Forget access?").setMessage("This removes the local login. Your subscription keeps its original expiry. You can recover it with the same code on this installation.").setPositiveButton("Forget",(d,n)->{stopService(new Intent(this,TunnelService.class));try{vault.token("");}catch(Exception ignored){}account=null;profiles=new JSONArray();tab="Home";render();}).setNegativeButton("Cancel",null).show()),20);
-        add(content,text("Top private Plug · 0.1.9 pilot\nImported VLESS / Trojan / Xray profiles",11,MUTED,false),20);
+        add(content,text("Top private Plug · 0.1.10 pilot\nImported VLESS / Trojan / Xray profiles",11,MUTED,false),20);
+    }
+    void addReportButton(LinearLayout parent) {
+        Button report=button("Connection report",false,v->showConnectionReport());
+        report.setEnabled(true);add(parent,report,12);
+    }
+    String networkSummary() {
+        try {
+            android.net.ConnectivityManager manager=getSystemService(android.net.ConnectivityManager.class);
+            android.net.NetworkCapabilities caps=manager.getNetworkCapabilities(manager.getActiveNetwork());
+            if(caps==null)return "Current network: unavailable\n";
+            String transport=caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)?"VPN":
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)?"Wi-Fi":
+                caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)?"Mobile":"Other";
+            return "Current network: "+transport+"; Android validated internet: "+
+                caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)+"\n";
+        } catch(Exception ignored) { return "Current network: unknown\n"; }
+    }
+    void showConnectionReport() {
+        final String report="Android API "+Build.VERSION.SDK_INT+"\n"+networkSummary()+ConnectionReport.snapshot();
+        TextView body=text(report,12,TEXT,false);body.setTextIsSelectable(true);body.setPadding(dp(16),dp(16),dp(16),dp(16));
+        ScrollView scroll=new ScrollView(this);scroll.addView(body);
+        new AlertDialog.Builder(this).setTitle("Connection report").setView(scroll)
+            .setPositiveButton("Close",null).setNeutralButton("Share",(d,n)->{
+                Intent send=new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,report);
+                try { startActivity(Intent.createChooser(send,"Share connection report")); }
+                catch(ActivityNotFoundException error) { message("Select and copy the report text instead."); }
+            }).show();
     }
     void purchaseDialog(boolean topUp) {
         String[] options={"7 days", "15 days", "30 days", "Custom duration or data top-up"};

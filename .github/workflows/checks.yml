@@ -42,7 +42,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Verify Android cancellation with blocked native startup and shutdown
-        run: python -m unittest tests.test_android_lifecycle tests.test_android_access -v
+        run: python -m unittest tests.test_android_lifecycle tests.test_android_access tests.test_connection_report -v
       - name: Preserve pilot signing identity
         uses: actions/cache@v4
         with:

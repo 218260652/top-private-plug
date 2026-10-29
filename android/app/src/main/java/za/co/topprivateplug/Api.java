@@ -22,12 +22,15 @@ final class Api {
         URL url = new URL(endpoint + path);
         if (!"https".equals(url.getProtocol())) throw new Exception("The service address must use HTTPS.");
         HttpsURLConnection connection = (HttpsURLConnection)url.openConnection();
-        connection.setConnectTimeout(12000); connection.setReadTimeout(45000);
+        boolean heartbeat = "/v1/xray/heartbeat".equals(path);
+        connection.setConnectTimeout(heartbeat ? 5000 : 12000);
+        connection.setReadTimeout(heartbeat ? 10000 : 45000);
         connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("Accept", "application/json");
         connection.setRequestProperty("X-TPP-Engines", "xray");
         connection.setRequestProperty("X-TPP-Features", "legacy-tls-test-v1");
         if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + vault.token());
+        ConnectionReport.request(path, 0);
         try {
             if (data != null) {
                 connection.setRequestMethod("POST"); connection.setDoOutput(true);
@@ -36,6 +39,7 @@ final class Api {
                 try (OutputStream output = connection.getOutputStream()) { output.write(bytes); }
             }
             int status = connection.getResponseCode();
+            ConnectionReport.request(path, status);
             InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
             if (stream == null) throw new Exception("The service did not return a response.");
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -47,19 +51,23 @@ final class Api {
             if (status < 200 || status >= 300) throw new HttpError(status, result.optString("error", "Service request failed."), authenticated);
             return result;
         } catch (javax.net.ssl.SSLException error) {
+            ConnectionReport.failure(path, error);
             throw new Exception("Secure connection to the account service failed. Check your phone's date and time and try another internet connection. Your saved access has not been removed.", error);
         } catch (java.io.IOException error) {
-            throw new Exception("Cannot reach the account service. Check that normal websites open with other VPNs turned off, or try Wi-Fi, then retry. Your saved access has not been removed.", error);
+            ConnectionReport.failure(path, error);
+            throw new Exception("Cannot reach the account service (" + ConnectionReport.category(error) + "). The VPN cannot start until this service is reachable. Open Connection report for details. Your saved access has not been removed.", error);
         } finally { connection.disconnect(); }
     }
     JSONObject proof(String purpose) throws Exception {
         return proof(purpose, null);
     }
     JSONObject proof(String purpose, Progress progress) throws Exception {
+        ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_CHALLENGE);
         if (progress != null) progress.stage("Contacting account service for a connection challenge");
         String publicKey = DeviceKey.publicKey();
         JSONObject challenge = request("/v1/challenge", new JSONObject().put("public_key", publicKey).put("purpose", purpose), false);
         if (progress != null) progress.stage("Signing the device challenge");
+        ConnectionReport.stage(ConnectionReport.Stage.DEVICE_PROOF);
         return new JSONObject().put("public_key", publicKey).put("challenge_id", challenge.getString("id"))
             .put("signature", DeviceKey.sign(challenge.getString("message")));
     }
@@ -71,6 +79,7 @@ final class Api {
     JSONObject connect(String profile, Progress progress) throws Exception {
         JSONObject data = proof("connect", progress).put("profile_id", profile);
         progress.stage("Authorizing account and downloading the connection profile");
+        ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_AUTHORIZATION);
         return request("/v1/connect", data, true);
     }
 }
