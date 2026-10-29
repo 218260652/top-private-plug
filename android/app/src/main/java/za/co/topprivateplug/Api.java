@@ -10,7 +10,8 @@ import javax.net.ssl.HttpsURLConnection;
 final class Api {
     static final class HttpError extends Exception {
         final int status;
-        HttpError(int status, String message) { super(message); this.status=status; }
+        final boolean authenticated;
+        HttpError(int status, String message, boolean authenticated) { super(message); this.status=status; this.authenticated=authenticated; }
     }
     interface Progress { void stage(String message) throws Exception; }
     private final Vault vault;
@@ -43,8 +44,12 @@ final class Api {
                 while ((size = input.read(buffer)) != -1) { bytes.write(buffer, 0, size); if (bytes.size() > 1024 * 1024) throw new Exception("Service response is too large."); }
             }
             JSONObject result = new JSONObject(bytes.toString("UTF-8"));
-            if (status < 200 || status >= 300) throw new HttpError(status, result.optString("error", "Service request failed."));
+            if (status < 200 || status >= 300) throw new HttpError(status, result.optString("error", "Service request failed."), authenticated);
             return result;
+        } catch (javax.net.ssl.SSLException error) {
+            throw new Exception("Secure connection to the account service failed. Check your phone's date and time and try another internet connection. Your saved access has not been removed.", error);
+        } catch (java.io.IOException error) {
+            throw new Exception("Cannot reach the account service. Check that normal websites open with other VPNs turned off, or try Wi-Fi, then retry. Your saved access has not been removed.", error);
         } finally { connection.disconnect(); }
     }
     JSONObject proof(String purpose) throws Exception {

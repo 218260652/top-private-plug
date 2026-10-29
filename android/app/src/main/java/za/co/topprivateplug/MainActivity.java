@@ -106,6 +106,7 @@ public final class MainActivity extends Activity {
     void home() {
         TextView country=text("●  South Africa",13,MINT,false);country.setGravity(Gravity.CENTER);add(content,country,24);
         if(vault.token().isEmpty()) { activation();return; }
+        if(account==null) { accountRecovery();return; }
         LinearLayout networks=new LinearLayout(this);
         for(String item:new String[]{"MTN","Telkom","Cell C"}){Button b=button(item,false,v->{if(!TunnelService.state.equals("Disconnected")){message("Disconnect before changing the network.");return;}carrier=item;selectedProfile="";render();});b.setTextColor(item.equals(carrier)?CYAN:MUTED);if(item.equals(carrier))b.setBackground(shape(0xff0c3546,CYAN,16));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(49),1);p.setMargins(dp(3),0,dp(3),0);networks.addView(b,p);}add(content,networks,20);
         LinearLayout connection=card();TextView state=text(TunnelService.state,21,TEXT,true);state.setGravity(Gravity.CENTER);add(connection,state,8);
@@ -118,6 +119,23 @@ public final class MainActivity extends Activity {
         planCard();
         LinearLayout live=card();add(live,text("Live session",16,TEXT,true),14);add(live,text("↑ "+bytes(TunnelService.uploaded)+"     ↓ "+bytes(TunnelService.downloaded),17,CYAN,true),8);add(live,text(TunnelService.latency<0?"Latency —":("Gateway latency "+TunnelService.latency+" ms"),12,MUTED,false),0);
     }
+    void accountRecovery() {
+        LinearLayout c=card();
+        add(c,text("Access saved",25,TEXT,true),12);
+        add(c,text(refreshing?"Checking your account…":"Account check needed",16,CYAN,true),12);
+        add(c,text("Your saved activation is still on this phone. Account and profile details must be loaded from the service before connecting. A failed network request does not mean your access has expired.",14,MUTED,false),18);
+        Button retry=button(refreshing?"Checking…":"Retry account check",true,v->refresh());
+        retry.setEnabled(!refreshing&&!busy);add(c,retry,12);
+        add(c,button("Open service status",false,v->{
+            try { startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(vault.endpoint()+"/health"))); }
+            catch(ActivityNotFoundException error) { message("Open "+vault.endpoint()+"/health in your browser."); }
+        }),12);
+        add(c,text("Check that normal websites open with other VPN apps turned off. If mobile data cannot reach the service, try Wi-Fi. Keep this app installed and do not clear its data.",12,MUTED,false),0);
+        if(!"Disconnected".equals(TunnelService.state))add(content,button("Disconnect VPN",false,v->toggle()),12);
+    }
+    AccessState.State accessState() {
+        return AccessState.resolve(!vault.token().isEmpty(),account!=null,account==null?"":account.optString("status"));
+    }
     void activation() {
         TextView globe=text("◉",105,0xff167d9e,false);globe.setGravity(Gravity.CENTER);add(content,globe,20);
         LinearLayout c=card();add(c,text("Activate your access",27,TEXT,true),10);add(c,text("Enter the access code supplied by your service admin. Your time starts on first activation.",14,MUTED,false),25);
@@ -128,8 +146,9 @@ public final class MainActivity extends Activity {
         add(content,button(vault.endpoint().isEmpty()?"Set service address":"Service settings",false,v->endpointDialog()),20);
     }
     void planCard() {
+        if(account==null&&!vault.token().isEmpty()){accountRecovery();return;}
         LinearLayout c=card();add(c,text("Your access",13,MUTED,false),8);
-        if(account==null){add(c,text("Refresh your account to see its limits.",15,TEXT,false),0);return;}
+        if(account==null){add(c,text("Activate your access to see its limits.",15,TEXT,false),0);return;}
         add(c,text(account.optString("kind").equals("trial")?"FREE TRIAL":"PRIVATE ACCESS",22,TEXT,true),8);
         String status=account.optString("status","unknown");add(c,text(status.toUpperCase(Locale.ROOT),12,status.equals("active")?MINT:CYAN,true),15);
         long used=account.optLong("used"),quota=account.optLong("quota");
@@ -160,7 +179,7 @@ public final class MainActivity extends Activity {
         add(content,button("Activate / recover access",false,v->codeDialog(false)),15);
         add(content,button("WhatsApp: "+PurchaseRequest.DISPLAY_PHONE,false,v->purchaseDialog(account!=null)),15);
         add(content,button("Forget access on this phone",false,v->new AlertDialog.Builder(this).setTitle("Forget access?").setMessage("This removes the local login. Your subscription keeps its original expiry. You can recover it with the same code on this installation.").setPositiveButton("Forget",(d,n)->{stopService(new Intent(this,TunnelService.class));try{vault.token("");}catch(Exception ignored){}account=null;profiles=new JSONArray();tab="Home";render();}).setNegativeButton("Cancel",null).show()),20);
-        add(content,text("Top private Plug · 0.1.8 pilot\nImported VLESS / Trojan / Xray profiles",11,MUTED,false),20);
+        add(content,text("Top private Plug · 0.1.9 pilot\nImported VLESS / Trojan / Xray profiles",11,MUTED,false),20);
     }
     void purchaseDialog(boolean topUp) {
         String[] options={"7 days", "15 days", "30 days", "Custom duration or data top-up"};
@@ -192,7 +211,13 @@ public final class MainActivity extends Activity {
         if("Disconnecting".equals(TunnelService.state)){message("The tunnel is closing. Please wait before reconnecting.");return;}
         if(!"Disconnected".equals(TunnelService.state)){startService(new Intent(this,TunnelService.class).setAction("STOP"));handler.postDelayed(this::render,300);return;}
         if(busy)return;
-        if(account==null||!account.optString("status").equals("active")){message("Activate an account with available time and data first.");return;}
+        AccessState.State access=accessState();
+        if(access==AccessState.State.ACTIVATION_REQUIRED){codeDialog(false);return;}
+        if(access==AccessState.State.CHECK_REQUIRED){
+            if(!refreshing)refresh();
+            message("Your activation is saved. We need to reach the account service before connecting. Check your internet or try Wi-Fi, then retry the account check.");return;
+        }
+        if(access==AccessState.State.INACTIVE){message("The service last reported your account as "+account.optString("status","unavailable")+". Retry the account check or contact your admin.");return;}
         JSONArray available=carrierProfiles();if(available.length()==0){message("No assigned profile for "+carrier+".");return;}
         boolean found=false;for(int i=0;i<available.length();i++)if(available.optJSONObject(i).optString("id").equals(selectedProfile))found=true;
         if(!found)selectedProfile=available.optJSONObject(0).optString("id");
@@ -221,14 +246,14 @@ public final class MainActivity extends Activity {
     void runNetwork(Work work,boolean quiet) {
         if (quiet ? refreshing : busy) return;
         if (quiet) refreshing=true; else busy=true;
-        if (!quiet) render();
+        render();
         final String requestToken=vault.token(), requestEndpoint=vault.endpoint();
         (quiet ? backgroundNetwork : network).execute(()->{
             try { work.run(); handler.post(()->{if(requestToken.equals(vault.token())&&requestEndpoint.equals(vault.endpoint()))lastError="";}); }
             catch(Exception error) {
                 handler.post(()->{
                     if(!requestToken.equals(vault.token())||!requestEndpoint.equals(vault.endpoint()))return;
-                    if(error instanceof Api.HttpError && ((Api.HttpError)error).status==401 && !requestToken.isEmpty()) {
+                    if(error instanceof Api.HttpError && ((Api.HttpError)error).status==401 && ((Api.HttpError)error).authenticated && !requestToken.isEmpty()) {
                         try { vault.token(""); } catch(Exception ignored) {}
                         account=null;profiles=new JSONArray();points=new JSONArray();
                         lastError="Your access is no longer valid. Ask your admin for an active code, then activate it here.";
