@@ -44,6 +44,7 @@ public class ReportHarness {
             source = Path(tmp) / 'ReportHarness.java'
             source.write_text(harness)
             report = ROOT / 'android/app/src/main/java/za/co/topprivateplug/ConnectionReport.java'
-            subprocess.run(['javac', '-d', tmp, str(report), str(source)], check=True, capture_output=True, text=True, timeout=30)
+            subprocess.run(['javac', '-d', tmp, str(report), str(report.with_name('ProxyFailure.java')), str(source)], check=True, capture_output=True, text=True, timeout=30)
             result = subprocess.run(['java', '-cp', tmp, 'za.co.topprivateplug.ReportHarness'], check=True, capture_output=True, text=True, timeout=10)
             self.assertIn('PASS:', result.stdout)
+

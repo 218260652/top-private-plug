@@ -32,6 +32,7 @@ final class ConnectionReport {
     }
     static String category(Throwable error) {
         for (int i=0; error != null && i<8; i++, error=error.getCause()) {
+            if (error instanceof ProxyFailure) return "UPSTREAM_PROXY_"+((ProxyFailure)error).status;
             if (error instanceof java.net.UnknownHostException) return "DNS_LOOKUP";
             if (error instanceof java.net.SocketTimeoutException) return "NETWORK_TIMEOUT";
             if (error instanceof javax.net.ssl.SSLException) return "TLS_HANDSHAKE";
@@ -41,7 +42,7 @@ final class ConnectionReport {
         return "OTHER_ERROR";
     }
     static synchronized String snapshot() {
-        StringBuilder report = new StringBuilder("Top private Plug 0.1.12 pilot\nEvents since app launch (oldest first; last 48).\n");
+        StringBuilder report = new StringBuilder("Top private Plug 0.1.13 pilot\nEvents since app launch (oldest first; last 48).\n");
         report.append("Saved-profile startup verifies the account through VLESS/Trojan before enabling the VPN.\n");
         if (events.isEmpty()) report.append("No connection events yet. Retry the account check or connection first.\n");
         for (String event : events) report.append(event).append('\n');

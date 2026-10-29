@@ -93,10 +93,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          tag="pilot-0.1.12-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          zip -j Top-private-Plug-0.1.12-pilot.zip Top-private-Plug-0.1.12-pilot.apk
+          tag="pilot-0.1.13-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          zip -j Top-private-Plug-0.1.13-pilot.zip Top-private-Plug-0.1.13-pilot.apk
           sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz > SHA256SUMS
-          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.12 pilot" --prerelease --notes "Automatically save assigned connection settings during online account refresh. Missing profiles are explained before a direct account attempt. Saved VLESS/Trojan starts before account verification. Carrier zero-data operation still requires phone testing."
+          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.13 pilot" --prerelease --notes "Reuse HTTPS account connections instead of forcing separate upstream proxy connections. Report upstream proxy 429 and 503 accurately and pause retries for 30 seconds. Manual Wi-Fi profile refresh replaces cached configurations. Carrier zero-data connectivity still requires a phone test."
           gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz SHA256SUMS
           gh release view "$tag" --json url --jq .url
       - name: Save pilot APK

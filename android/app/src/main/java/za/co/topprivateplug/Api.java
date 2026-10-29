@@ -18,10 +18,11 @@ final class Api {
     interface Progress { void stage(String message) throws Exception; }
     private static volatile ControlRoute tunnelRoute;
     static final class ControlRoute {
-        final String endpoint; final Proxy proxy;
-        ControlRoute(String endpoint,int port) { this.endpoint=endpoint; proxy=new Proxy(Proxy.Type.HTTP,new InetSocketAddress("127.0.0.1",port)); }
+        final String endpoint; final Proxy proxy; final Runnable beforeRequest;
+        ControlRoute(String endpoint,int port,Runnable beforeRequest) { this.beforeRequest=beforeRequest;this.endpoint=endpoint; proxy=new Proxy(Proxy.Type.HTTP,new InetSocketAddress("127.0.0.1",port)); }
     }
-    static void throughTunnel(String endpoint,int port) { tunnelRoute=new ControlRoute(endpoint,port); }
+    static void throughTunnel(String endpoint,int port) { throughTunnel(endpoint,port,null); }
+    static void throughTunnel(String endpoint,int port,Runnable beforeRequest) { tunnelRoute=new ControlRoute(endpoint,port,beforeRequest); }
     static void clearTunnel() { tunnelRoute=null; }
     private final Vault vault;
     Api(Vault vault) { this.vault = vault; }
@@ -32,18 +33,20 @@ final class Api {
         if (!"https".equals(url.getProtocol())) throw new Exception("The service address must use HTTPS.");
         ControlRoute route=tunnelRoute;
         if(route!=null && !route.endpoint.equals(endpoint)) throw new Exception("Disconnect before changing the account service.");
+        if(route!=null && route.beforeRequest!=null)route.beforeRequest.run();
         HttpsURLConnection connection = (HttpsURLConnection)(route==null?url.openConnection():url.openConnection(route.proxy));
         boolean heartbeat = "/v1/xray/heartbeat".equals(path);
         connection.setConnectTimeout(heartbeat ? 5000 : 12000);
         connection.setReadTimeout(heartbeat ? 10000 : 45000);
         connection.setInstanceFollowRedirects(false);
         connection.setRequestProperty("Accept", "application/json");
-        // Do not reuse a direct HTTPS socket after switching to the control proxy.
-        connection.setRequestProperty("Connection", "close");
+        // Android pools by HTTPS origin and explicit Proxy route. Keep a fully
+        // consumed account connection reusable between challenge and authorization.
         connection.setRequestProperty("X-TPP-Engines", "xray");
         connection.setRequestProperty("X-TPP-Features", "legacy-tls-test-v1");
         if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + vault.token());
         ConnectionReport.request(path, 0, route!=null);
+        boolean consumed=false;
         try {
             if (data != null) {
                 connection.setRequestMethod("POST"); connection.setDoOutput(true);
@@ -60,16 +63,17 @@ final class Api {
                 byte[] buffer = new byte[4096]; int size;
                 while ((size = input.read(buffer)) != -1) { bytes.write(buffer, 0, size); if (bytes.size() > 1024 * 1024) throw new Exception("Service response is too large."); }
             }
+            consumed=true;
             JSONObject result = new JSONObject(bytes.toString("UTF-8"));
             if (status < 200 || status >= 300) throw new HttpError(status, result.optString("error", "Service request failed."), authenticated);
             return result;
         } catch (javax.net.ssl.SSLException error) {
             ConnectionReport.failure(path, error);
-            throw new Exception("Secure connection to the account service failed. Check your phone's date and time and try another internet connection. Your saved access has not been removed.", error);
+            throw new Exception("The account HTTPS connection was interrupted or could not be verified. Open Connection report for the tunnel or certificate error. Your saved access has not been removed.", error);
         } catch (java.io.IOException error) {
             ConnectionReport.failure(path, error);
             throw new Exception("Cannot reach the account service (" + ConnectionReport.category(error) + "). Account verification could not complete. Open Connection report for details. Your saved access has not been removed.", error);
-        } finally { connection.disconnect(); }
+        } finally { if(!consumed)connection.disconnect(); }
     }
     JSONObject proof(String purpose) throws Exception {
         return proof(purpose, null);
@@ -89,12 +93,13 @@ final class Api {
         vault.token(result.getString("token")); return result.getJSONObject("account");
     }
     JSONObject connect(String profile) throws Exception { return request("/v1/connect", proof("connect").put("profile_id", profile), true); }
-    void prepareProfiles(org.json.JSONArray profiles) throws Exception {
+    void prepareProfiles(org.json.JSONArray profiles) throws Exception { prepareProfiles(profiles,false); }
+    void prepareProfiles(org.json.JSONArray profiles, boolean replace) throws Exception {
         final String accessToken=vault.token(), origin=vault.endpoint();
         for(int i=0;i<profiles.length();i++) {
             JSONObject profile=profiles.getJSONObject(i);
             String id=profile.getString("id");
-            if(!"xray".equals(profile.optString("engine")) || vault.bootstrap(id)!=null) continue;
+            if(!"xray".equals(profile.optString("engine")) || (!replace && vault.bootstrap(id)!=null)) continue;
             if(!accessToken.equals(vault.token()) || !origin.equals(vault.endpoint())) throw new Exception("Saved access changed. Retry saving profiles.");
             // Use the existing device-proof API so older admin servers also work.
             // No native engine or TUN is opened; release the temporary lease immediately.

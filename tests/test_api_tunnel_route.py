@@ -9,7 +9,7 @@ class ApiTunnelRouteTests(unittest.TestCase):
         harness=r'''package za.co.topprivateplug;
 import java.net.*;import java.io.*;import javax.net.ssl.*;import java.security.cert.Certificate;
 public class ApiHarness {
- static Proxy last;static int calls;static FakeConnection connection;static java.util.List<String> paths=new java.util.ArrayList<>();
+ static boolean failRead;static Proxy last;static int calls;static FakeConnection connection;static java.util.List<String> paths=new java.util.ArrayList<>();
  static void check(boolean b){if(!b)throw new AssertionError();}
  public static void main(String[] a)throws Exception {
   URL.setURLStreamHandlerFactory(protocol->"https".equals(protocol)?new URLStreamHandler(){
@@ -17,7 +17,7 @@ public class ApiHarness {
    protected URLConnection openConnection(URL u,Proxy p){last=p;calls++;return connection=new FakeConnection(u);}
   }:null);
   Vault vault=new Vault();Api api=new Api(vault);
-  api.request("/v1/status",null,true);check(last==null);
+  api.request("/v1/status",null,true);check(last==null);check(connection.getRequestProperty("Connection")==null&&!connection.disconnected);
   Api.throughTunnel(vault.endpoint(),12345);
   api.request("/v1/challenge",null,false);
   check(last!=null&&last.type()==Proxy.Type.HTTP&&last.address().equals(new InetSocketAddress("127.0.0.1",12345)));
@@ -35,6 +35,16 @@ public class ApiHarness {
   check(vault.saved&&vault.writes==1);
   check(paths.equals(java.util.Arrays.asList("/v1/challenge","/v1/connect","/v1/xray/disconnect")));
   paths.clear();api.prepareProfiles(profiles);check(paths.isEmpty());
+  api.prepareProfiles(profiles,true);check(vault.writes==2);
+  failRead=true;
+  try{api.request("/v1/status",null,true);throw new AssertionError();}catch(Exception expected){check(connection.disconnected);}
+  failRead=false;
+  check(ProxyFailure.status("proxy/http: Proxy responded with non 200 code: 429 Too Many Requests")==429);
+  check(ProxyFailure.status("proxy/http: Proxy responded with non 200 code: 503 Service Unavailable")==503);
+  check(ProxyFailure.status("certificate failure") == 0);
+  check(ProxyFailure.status("HTTP_429 from account service") == 0);
+  ConnectionReport.failure(null,new ProxyFailure(429));
+  check(ConnectionReport.snapshot().contains("UPSTREAM_PROXY_429"));
   vault.saved=false;vault.failSave=true;paths.clear();
   try {api.prepareProfiles(profiles);throw new AssertionError();}catch(java.io.IOException expected){}
   check(paths.get(paths.size()-1).equals("/v1/xray/disconnect"));
@@ -44,11 +54,11 @@ public class ApiHarness {
   check(paths.isEmpty());
  }
  static class FakeConnection extends HttpsURLConnection {
-  FakeConnection(URL u){super(u);paths.add(u.getPath());}public void connect(){}public void disconnect(){}public boolean usingProxy(){return true;}
+  boolean disconnected;FakeConnection(URL u){super(u);paths.add(u.getPath());}public void connect(){}public void disconnect(){disconnected=true;}public boolean usingProxy(){return true;}
   public String getCipherSuite(){return "TLS-fixture";}public Certificate[] getLocalCertificates(){return null;}
   public Certificate[] getServerCertificates(){return null;}
   public OutputStream getOutputStream(){return new ByteArrayOutputStream();}
-  public int getResponseCode(){return 200;}public InputStream getInputStream(){return new ByteArrayInputStream("{}".getBytes());}
+  public int getResponseCode(){return 200;}public InputStream getInputStream()throws IOException{if(failRead)throw new SSLException("fixture tunnel interrupted");return new ByteArrayInputStream("{}".getBytes());}
  }
 }
 class Vault {
@@ -74,6 +84,6 @@ class DeviceKey {static String publicKey(){return "public";}static String sign(S
             root=Path(tmp);source=root/'ApiHarness.java';source.write_text(harness)
             stub=root/'JSONObject.java';stub.write_text(json_stub)
             array=root/'JSONArray.java';array.write_text('package org.json;public class JSONArray {private JSONObject[] values;public JSONArray(JSONObject... v){values=v;}public int length(){return values.length;}public JSONObject getJSONObject(int i){return values[i];}}')
-            subprocess.run(['javac','-d',tmp,str(source),str(stub),str(array),str(JAVA/'Api.java'),str(JAVA/'ConnectionReport.java')],check=True,capture_output=True,text=True,timeout=30)
+            subprocess.run(['javac','-d',tmp,str(source),str(stub),str(array),str(JAVA/'Api.java'),str(JAVA/'ConnectionReport.java'),str(JAVA/'ProxyFailure.java')],check=True,capture_output=True,text=True,timeout=30)
             subprocess.run(['java','-cp',tmp,'za.co.topprivateplug.ApiHarness'],check=True,capture_output=True,text=True,timeout=10)
 

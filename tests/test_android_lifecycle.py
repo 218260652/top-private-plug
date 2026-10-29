@@ -85,6 +85,7 @@ public class ShutdownHarness {
             java = Path(tmp) / 'ShutdownHarness.java'
             java.write_text(harness)
             report = ROOT / 'android/app/src/main/java/za/co/topprivateplug/ConnectionReport.java'
-            subprocess.run(['javac', '-d', tmp, str(java), str(report)], check=True, capture_output=True, text=True, timeout=30)
+            subprocess.run(['javac', '-d', tmp, str(java), str(report), str(report.with_name('ProxyFailure.java'))], check=True, capture_output=True, text=True, timeout=30)
             result = subprocess.run(['java', '-cp', tmp, 'za.co.topprivateplug.ShutdownHarness'], check=True, capture_output=True, text=True, timeout=8)
             self.assertIn('PASS:', result.stdout)
+

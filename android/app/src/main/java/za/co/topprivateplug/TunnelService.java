@@ -29,6 +29,10 @@ public final class TunnelService extends VpnService {
     private String xrayLease;
     private int controlPort;
     private volatile String phase = "Starting VPN service";
+    private static volatile long proxyRetryAt;
+    static long proxyRetrySeconds() {
+        return Math.max(0,(proxyRetryAt-android.os.SystemClock.elapsedRealtime()+999)/1000);
+    }
 
     private synchronized void progress(String message) throws Exception {
         if (!running.get()) throw new Exception("Connection cancelled.");
@@ -42,6 +46,7 @@ public final class TunnelService extends VpnService {
         if (intent == null) { stopSelf(startId); return START_NOT_STICKY; }
         if (stopping.get() || (worker != null && worker.isAlive()) || !running.compareAndSet(false, true)) return START_NOT_STICKY;
         if (VpnService.prepare(this) != null) { running.set(false); stopSelf(); return START_NOT_STICKY; }
+        if(proxyRetrySeconds()>0){running.set(false);state="Disconnected";detail="Upstream proxy cooling down. Retry in "+proxyRetrySeconds()+" seconds.";stopSelf(startId);return START_NOT_STICKY;}
         state = "Connecting"; detail = "Starting VPN service…";
         ConnectionReport.stage(ConnectionReport.Stage.START);
         showNotification("Connecting securely…");
@@ -99,7 +104,7 @@ public final class TunnelService extends VpnService {
                     // No TUN inbound or Android VPN interface exists at this stage.
                     // Only the loopback account proxy is exposed; all other targets are blocked.
                     xray.start(TunnelConfig.control(saved.getJSONObject("config"),vault.endpoint(),controlPort,true).toString(),0);
-                    Api.throughTunnel(vault.endpoint(),controlPort);
+                    Api.throughTunnel(vault.endpoint(),controlPort,xray::clearUpstreamStatus);
                 }
                 ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_VIA_TUNNEL);
             } else {
@@ -121,12 +126,14 @@ public final class TunnelService extends VpnService {
             if (running.get()) detail = "The Xray engine could not load on this phone. Install the complete current APK.";
         } catch (Exception error) {
             if (running.get()) {
+                XrayEngine engine = xray;
+                int proxyStatus=engine==null?0:engine.upstreamStatus();
+                if(proxyStatus!=0){error=new ProxyFailure(proxyStatus);proxyRetryAt=android.os.SystemClock.elapsedRealtime()+30000;}
                 ConnectionReport.failure(null, error);
                 String reason = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
                 reason = reason.replaceAll("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "[redacted UUID]");
                 detail = "Failed: " + phase + ". " + reason;
-                XrayEngine engine = xray;
-                if (engine != null && !engine.diagnostic().isEmpty()) detail += "\nEngine: " + engine.diagnostic();
+                if (proxyStatus==0 && engine != null && !engine.diagnostic().isEmpty()) detail += "\nEngine: " + engine.diagnostic();
             }
         } finally {
             stopTunnel();
@@ -157,7 +164,7 @@ public final class TunnelService extends VpnService {
             progress("Starting Xray with the imported VLESS or Trojan profile");
             ConnectionReport.stage(ConnectionReport.Stage.NATIVE_START);
             engine.start(config.toString(), tun.getFd());
-            Api.throughTunnel(new Vault(this).endpoint(),controlPort);
+            Api.throughTunnel(new Vault(this).endpoint(),controlPort,engine::clearUpstreamStatus);
         }
         progress("Checking HTTPS traffic through the Xray tunnel");
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
