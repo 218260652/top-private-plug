@@ -103,7 +103,8 @@ final class Api {
                 if(!"xray".equals(result.optString("engine"))) throw new Exception("Unsupported connection profile.");
                 vault.bootstrap(id,result,accessToken,origin);
             } finally {
-                request("/v1/xray/disconnect",new JSONObject().put("lease",result.getString("lease")),true);
+                if(accessToken.equals(vault.token()) && origin.equals(vault.endpoint()))
+                    request("/v1/xray/disconnect",new JSONObject().put("lease",result.getString("lease")),true);
             }
         }
     }
