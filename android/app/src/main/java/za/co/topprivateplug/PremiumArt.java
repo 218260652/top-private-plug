@@ -10,14 +10,14 @@ final class PremiumArt extends View {
     final MainActivity a; final String mode; final Paint p=new Paint(3);
     PremiumArt(MainActivity a,String mode,int height){super(a);this.a=a;this.mode=mode;setMinimumHeight(a.dp(height));setContentDescription(mode.equals("remaining")?"Remaining account data":"VPN "+mode);}
     float d(float n){return a.dp(n);}
-    boolean animate(){return a.visible&&!a.prefs.getBoolean("reduce_motion",false)&&android.animation.ValueAnimator.areAnimatorsEnabled();}
+    boolean motionEnabled(){return a.visible&&!a.prefs.getBoolean("reduce_motion",false)&&android.animation.ValueAnimator.areAnimatorsEnabled();}
     void line(Canvas c,int color,float width){p.reset();p.setAntiAlias(true);p.setColor(color);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(d(width));p.setStrokeCap(Paint.Cap.ROUND);}
     void label(Canvas c,String s,float x,float y,int size,int color,boolean bold){p.reset();p.setAntiAlias(true);p.setColor(color);p.setTextSize(d(size));p.setTypeface(bold?Typeface.create("sans-serif-medium",0):Typeface.create("sans-serif",0));p.setTextAlign(Paint.Align.CENTER);c.drawText(s,x,y,p);}
     @Override protected void onDraw(Canvas c){
         super.onDraw(c);float w=getWidth(),h=getHeight(),cx=w/2,cy=h/2;
-        float angle=animate()?(android.os.SystemClock.uptimeMillis()%6000)*.06f:0;
+        float angle=motionEnabled()?(android.os.SystemClock.uptimeMillis()%6000)*.06f:0;
         if(mode.equals("hero")){
-            if(a.planet!=null){p.reset();p.setFilterBitmap(true);float drift=animate()?(float)Math.sin(angle*Math.PI/180)*d(4):0;c.drawBitmap(a.planet,new Rect(0,(int)(a.planet.getHeight()*.10),a.planet.getWidth(),(int)(a.planet.getHeight()*.49)),new RectF(-d(5)+drift,0,w+d(5)+drift,h),p);}
+            if(a.planet!=null){p.reset();p.setFilterBitmap(true);float drift=motionEnabled()?(float)Math.sin(angle*Math.PI/180)*d(4):0;c.drawBitmap(a.planet,new Rect(0,(int)(a.planet.getHeight()*.10),a.planet.getWidth(),(int)(a.planet.getHeight()*.49)),new RectF(-d(5)+drift,0,w+d(5)+drift,h),p);}
             p.setShader(new LinearGradient(0,h*.6f,0,h,0x00030d1c,a.BG,Shader.TileMode.CLAMP));c.drawRect(0,h*.6f,w,h,p);p.setShader(null);
             if(a.vault.token().isEmpty()){float size=Math.min(h*.60f,d(94));a.drawIcon(c,"shield",cx-size/2,cy-size/2,size,a.CYAN);}
         } else if(mode.equals("power")||mode.equals("remaining")){
@@ -34,7 +34,7 @@ final class PremiumArt extends View {
         else if(mode.equals("spark")){
             line(c,a.CYAN,2);int n=a.liveSamples.size();if(n>1){Path path=new Path();float max=1;for(float v:a.liveSamples)max=Math.max(max,v);for(int i=0;i<n;i++){float x=w*i/(n-1),y=h-d(6)-(h-d(14))*a.liveSamples.get(i)/max;if(i==0)path.moveTo(x,y);else path.lineTo(x,y);}c.drawPath(path,p);}else label(c,"Live traffic appears when connected",w/2,h/2,11,a.MUTED,false);
         }
-        if(animate())postInvalidateDelayed(40);
+        if(motionEnabled())postInvalidateDelayed(40);
     }
     void drawHistory(Canvas c,float w,float h,float angle){
         float l=d(46),r=w-d(12),top=d(14),bottom=h-d(36);long max=1;int count=a.points.length();
