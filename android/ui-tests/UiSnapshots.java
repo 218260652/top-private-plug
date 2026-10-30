@@ -11,9 +11,11 @@ import java.io.*;
 public class UiSnapshots extends Instrumentation {
  MainActivity a;
  @Override public void onCreate(Bundle args){super.onCreate(args);start();}
- void main(Runnable r){runOnMainSync(r);waitForIdleSync();}
- void shot(String name)throws Exception {Thread.sleep(700);Bitmap image=getUiAutomation().takeScreenshot();if(image==null)throw new Exception("Screenshot unavailable");try(OutputStream out=new FileOutputStream(new File(a.getExternalFilesDir(null),name+".png"))){image.compress(Bitmap.CompressFormat.PNG,100,out);}image.recycle();}
+ void main(Runnable r){runOnMainSync(r);}
+ void shot(String name)throws Exception {Bundle progress=new Bundle();progress.putString("stream","Capturing "+name+"\n");sendStatus(0,progress);Thread.sleep(700);Bitmap image=getUiAutomation().takeScreenshot();if(image==null)throw new Exception("Screenshot unavailable");try(OutputStream out=new FileOutputStream(new File(a.getExternalFilesDir(null),name+".png"))){image.compress(Bitmap.CompressFormat.PNG,100,out);}image.recycle();}
  @Override public void onStart(){Bundle results=new Bundle();try{
+  Bundle launch=new Bundle();launch.putString("stream","Launching native activity\n");sendStatus(0,launch);
+  getTargetContext().getSharedPreferences("appearance",Context.MODE_PRIVATE).edit().putBoolean("reduce_motion",true).commit();
   a=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
   main(()->{a.handler.removeCallbacks(a.poll);a.updates.close();a.nextAccountRefresh=Long.MAX_VALUE;});shot("01-activation");
   main(()->{try{a.vault.token("ui-fixture-not-a-real-account");long now=System.currentTimeMillis()/1000;a.account=new JSONObject().put("id","00000000-0000-4000-8000-000000000000").put("status","active").put("quota",10000000000L).put("used",1200000000L).put("remaining_bytes",8800000000L).put("expires",now+14*86400).put("server_time",now);for(int i=0;i<24;i++)a.points.put(new JSONObject().put("at",now-3600+i*150).put("up",(long)(i%5+1)*12000000).put("down",(long)(i%7+1)*20000000));}catch(Exception e){throw new RuntimeException(e);}a.render();});shot("02-disconnected");
