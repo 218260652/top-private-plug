@@ -33,5 +33,6 @@ public class PolicyHarness {
         self.assertEqual(boot[0]['domain'],['full:account.example']);self.assertEqual(boot[0]['port'],'443')
         self.assertEqual(boot[0]['inboundTag'],['admin-control']);self.assertEqual(boot[0]['outboundTag'],'trojan')
         self.assertEqual(boot[1]['outboundTag'],'block');self.assertEqual(boot[2],{'type':'field','network':'tcp,udp','outboundTag':'block'})
-        self.assertEqual(len(full),2);self.assertEqual(full[0]['port'],'8443')
+        self.assertEqual(len(full),3);self.assertEqual(full[1]["domain"],["full:top-private-plug-downloads.ramashiaemily.chatgpt.site"]);self.assertEqual(full[1]["port"],"443");self.assertEqual(full[2]["outboundTag"],"block");self.assertEqual(full[0]['port'],'8443')
         self.assertEqual(ip[0]['ip'],['127.0.0.1'])
+

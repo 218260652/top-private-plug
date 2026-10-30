@@ -16,6 +16,7 @@ final class ControlPolicy {
         String target=literal?"\"ip\":[\""+host+"\"]":"\"domain\":[\"full:"+host+"\"]";
         return "[{\"type\":\"field\",\"inboundTag\":[\"admin-control\"],"+target+
             ",\"port\":\""+port+"\",\"network\":\"tcp\",\"outboundTag\":\"trojan\"},"+
+            (bootstrap?"":"{\"type\":\"field\",\"inboundTag\":[\"admin-control\"],\"domain\":[\"full:top-private-plug-downloads.ramashiaemily.chatgpt.site\"],\"port\":\"443\",\"network\":\"tcp\",\"outboundTag\":\"trojan\"},")+
             "{\"type\":\"field\",\"inboundTag\":[\"admin-control\"],\"network\":\"tcp,udp\",\"outboundTag\":\"block\"}"+
             (bootstrap?",{\"type\":\"field\",\"network\":\"tcp,udp\",\"outboundTag\":\"block\"}":"")+"]";
     }
@@ -25,3 +26,4 @@ final class ControlPolicy {
             ",\"protocol\":\"http\",\"settings\":{}}";
     }
 }
+

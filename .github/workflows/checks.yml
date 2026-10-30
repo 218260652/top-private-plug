@@ -42,7 +42,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Verify Android cancellation with blocked native startup and shutdown
-        run: python -m unittest tests.test_android_lifecycle tests.test_android_access tests.test_connection_report tests.test_control_policy tests.test_api_tunnel_route -v
+        run: python -m unittest tests.test_android_lifecycle tests.test_android_access tests.test_connection_report tests.test_control_policy tests.test_api_tunnel_route tests.test_premium_policy -v
       - name: Preserve pilot signing identity
         uses: actions/cache@v4
         with:
@@ -82,9 +82,20 @@ jobs:
         # Exercise real loopback sockets separately from the denied-socket parser test.
         run: |
           python tools/build_android.py --sdk "$ANDROID_HOME"
+      - name: Capture and verify native phone interfaces
+        run: |
+          sudo chmod a+rw /dev/kvm
+          sdkmanager 'emulator' 'system-images;android-35;google_apis;x86_64' > /tmp/emulator-install.log
+          echo no | avdmanager create avd -n premium-ui -k 'system-images;android-35;google_apis;x86_64' --device pixel_6
+          "$ANDROID_HOME/emulator/emulator" -avd premium-ui -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot > /tmp/emulator.log 2>&1 &
+          adb wait-for-device
+          timeout 240 bash -c 'until [ "$(adb shell getprop sys.boot_completed | tr -d "\r")" = 1 ]; do sleep 3; done'
+          adb shell input keyevent 82
+          python tools/verify_premium_ui.py
+          adb emu kill
       - name: Package rebuild sources and licenses
         run: |
-          tar --exclude=.git --exclude=.local-signing --exclude='*.aar' --exclude='*.apk' --exclude='android/build' --exclude='__pycache__' -czf /tmp/Top-private-Plug-rebuild-source.tar.gz .
+          tar --exclude=.git --exclude=.local-signing --exclude='*.aar' --exclude='*.apk' --exclude='android/build' --exclude='android/ui-build' --exclude='ui-screenshots' --exclude='*.zip' --exclude='__pycache__' -czf /tmp/Top-private-Plug-rebuild-source.tar.gz .
           cp /tmp/Top-private-Plug-rebuild-source.tar.gz .
       - name: Publish verified pilot as a GitHub Release
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -93,11 +104,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          tag="pilot-0.1.13-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          zip -j Top-private-Plug-0.1.13-pilot.zip Top-private-Plug-0.1.13-pilot.apk
-          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz > SHA256SUMS
-          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.13 pilot" --prerelease --notes "Reuse HTTPS account connections instead of forcing separate upstream proxy connections. Report upstream proxy 429 and 503 accurately and pause retries for 30 seconds. Manual Wi-Fi profile refresh replaces cached configurations. Carrier zero-data connectivity still requires a phone test."
-          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz SHA256SUMS
+          tag="pilot-0.1.14-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          zip -j Top-private-Plug-0.1.14-pilot.zip Top-private-Plug-0.1.14-pilot.apk
+          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.14-ui-screenshots.zip > SHA256SUMS
+          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.14 pilot" --prerelease --notes "Premium native interface with animated globe, activation and connection states, real usage charts, MTN and Telkom plans, WhatsApp requests, logout, appearance preferences and verified in-app update downloads. Keeps the tested saved-profile connection flow. Carrier connectivity requires a phone test."
+          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.14-ui-screenshots.zip SHA256SUMS
           gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
         continue-on-error: true
@@ -109,6 +120,7 @@ jobs:
             Top-private-Plug-rebuild-source.tar.gz
           if-no-files-found: error
           retention-days: 1
+
 
 
 

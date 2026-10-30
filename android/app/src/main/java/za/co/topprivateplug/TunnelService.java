@@ -17,6 +17,7 @@ public final class TunnelService extends VpnService {
     public static volatile String state = "Disconnected";
     public static volatile String detail = "";
     public static volatile long uploaded, downloaded, latency = -1;
+    public static volatile long connectedAt;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile ParcelFileDescriptor tun;
     private Thread worker, pinger;
@@ -174,6 +175,7 @@ public final class TunnelService extends VpnService {
         if (latency < 0) throw new Exception("The tunnel HTTPS check failed.");
         synchronized (this) {
             if (!running.get()) return;
+            connectedAt=android.os.SystemClock.elapsedRealtime();
             state = "Connected";
             ConnectionReport.stage(ConnectionReport.Stage.CONNECTED);
             detail = profile.optBoolean("insecure_tls") ? "Test profile: server certificate verification is disabled." : "Xray / TLS · traffic check passed";
@@ -231,4 +233,5 @@ public final class TunnelService extends VpnService {
     @Override public void onRevoke() { stopTunnel(); }
     @Override public void onDestroy() { stopTunnel(); super.onDestroy(); }
 }
+
 

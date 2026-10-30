@@ -23,6 +23,7 @@ final class Api {
     }
     static void throughTunnel(String endpoint,int port) { throughTunnel(endpoint,port,null); }
     static void throughTunnel(String endpoint,int port,Runnable beforeRequest) { tunnelRoute=new ControlRoute(endpoint,port,beforeRequest); }
+    static Proxy updateProxy() { ControlRoute route=tunnelRoute; return route==null?null:route.proxy; }
     static void clearTunnel() { tunnelRoute=null; }
     private final Vault vault;
     Api(Vault vault) { this.vault = vault; }
@@ -124,6 +125,7 @@ final class Api {
         return result;
     }
 }
+
 
 
 

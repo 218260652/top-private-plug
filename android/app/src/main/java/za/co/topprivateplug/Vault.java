@@ -18,7 +18,7 @@ final class Vault {
     private final SharedPreferences prefs;
     Vault(Context context) { prefs = context.getSharedPreferences("tpp", Context.MODE_PRIVATE); }
     String endpoint() { return prefs.getString("endpoint", DEFAULT_SERVICE_ORIGIN); }
-    void endpoint(String value) { synchronized(Vault.class) { prefs.edit().putString("endpoint", value).remove("token").remove("catalog").remove("bootstrap").commit();
+    void endpoint(String value) { synchronized(Vault.class) { prefs.edit().putString("endpoint", value).remove("token").remove("catalog").remove("bootstrap").remove("history").commit();
     } }
     private SecretKey key() throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);
@@ -42,7 +42,7 @@ final class Vault {
         return new String(cipher.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)), "UTF-8");
     }
     void token(String value) throws Exception { synchronized(Vault.class) {
-        SharedPreferences.Editor edit=prefs.edit().remove("catalog").remove("bootstrap");
+        SharedPreferences.Editor edit=prefs.edit().remove("catalog").remove("bootstrap").remove("history");
         if(value.isEmpty()) edit.remove("token"); else edit.putString("token",encrypt(value));
         if(!edit.commit()) throw new Exception("Could not save access on this phone.");
 
@@ -89,5 +89,16 @@ final class Vault {
             return scope().equals(value.optString("scope"))?value.getJSONObject("profiles").optJSONObject(profileId):null;
         } catch(Exception ignored) { return null; }
 
+    } }
+    JSONArray mergeHistory(JSONArray fresh,int hours,String expectedToken,String expectedOrigin) throws Exception { synchronized(Vault.class) {
+        if(!expectedToken.equals(token())||!expectedOrigin.equals(endpoint()))throw new Exception("Account changed during history refresh.");
+        if(token().isEmpty())return new JSONArray();
+        java.util.TreeMap<Long,JSONObject> records=new java.util.TreeMap<>();
+        try {JSONObject stored=new JSONObject(decrypt(prefs.getString("history","")));if(scope().equals(stored.optString("scope"))){JSONArray items=stored.getJSONArray("points");for(int i=0;i<items.length();i++){JSONObject v=items.getJSONObject(i);records.put(v.getLong("at"),v);}}}catch(Exception ignored){}
+        for(int i=0;i<fresh.length();i++){JSONObject v=fresh.getJSONObject(i);records.put(v.getLong("at"),v);}
+        long now=System.currentTimeMillis()/1000;records.headMap(now-7*86400L).clear();
+        while(records.size()>10080)records.pollFirstEntry();
+        JSONArray all=new JSONArray(),selected=new JSONArray();for(java.util.Map.Entry<Long,JSONObject> entry:records.entrySet()){all.put(entry.getValue());if(entry.getKey()>=now-hours*3600L)selected.put(entry.getValue());}
+        prefs.edit().putString("history",encrypt(new JSONObject().put("scope",scope()).put("points",all).toString())).apply();return selected;
     } }
 }
