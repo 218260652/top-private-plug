@@ -36,7 +36,7 @@ final class Api {
         if(route!=null && !route.endpoint.equals(endpoint)) throw new Exception("Disconnect before changing the account service.");
         if(route!=null && route.beforeRequest!=null)route.beforeRequest.run();
         HttpsURLConnection connection = (HttpsURLConnection)(route==null?url.openConnection():url.openConnection(route.proxy));
-        boolean heartbeat = "/v1/xray/heartbeat".equals(path);
+        boolean heartbeat = "/v1/xray/heartbeat".equals(path) || "/v1/xray/disconnect".equals(path);
         connection.setConnectTimeout(heartbeat ? 5000 : 12000);
         connection.setReadTimeout(heartbeat ? 10000 : 45000);
         connection.setInstanceFollowRedirects(false);
@@ -125,6 +125,7 @@ final class Api {
         return result;
     }
 }
+
 
 
 

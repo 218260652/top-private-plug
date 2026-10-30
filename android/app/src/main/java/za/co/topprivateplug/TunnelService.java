@@ -30,9 +30,64 @@ public final class TunnelService extends VpnService {
     private String xrayLease;
     private int controlPort;
     private volatile String phase = "Starting VPN service";
-    private static volatile long proxyRetryAt;
-    static long proxyRetrySeconds() {
-        return Math.max(0,(proxyRetryAt-android.os.SystemClock.elapsedRealtime()+999)/1000);
+    private volatile boolean reconnectAllowed, retryFailure, proxyFailure, retryPending, hadLease;
+    private int retryAttempt;
+    private String activeProfile, accessToken, accountOrigin;
+    private Runnable retryTask;
+
+    private void requestStop() {
+        reconnectAllowed = false;
+        retryPending = false;
+        if (retryTask != null) main.removeCallbacks(retryTask);
+        stopTunnel();
+    }
+
+    private void beginAttempt() {
+        if (!reconnectAllowed || VpnService.prepare(this) != null) { requestStop(); return; }
+        running.set(true);
+        retryFailure = proxyFailure = hadLease = false;
+        state = retryAttempt == 0 ? "Connecting" : "Reconnecting";
+        detail = retryAttempt == 0 ? "Starting VPN service…" : "Reconnecting (attempt " + retryAttempt + "/5)…";
+        ConnectionReport.stage(ConnectionReport.Stage.START);
+        showNotification(detail);
+        worker = new Thread(() -> runTunnel(activeProfile), "tpp-tunnel");
+        worker.start();
+    }
+
+    private void onCleanupComplete() {
+        stopping.set(false);
+        ConnectionReport.stage(ConnectionReport.Stage.CLEANUP_COMPLETE);
+        Vault vault = new Vault(this);
+        boolean sameAccess = accessToken != null && !accessToken.isEmpty()
+            && accessToken.equals(vault.token()) && accountOrigin.equals(vault.endpoint());
+        if (reconnectAllowed && retryFailure && sameAccess && retryAttempt < RetryPolicy.MAX_RETRIES) {
+            retryAttempt++;
+            long delay = RetryPolicy.delayMillis(retryAttempt, proxyFailure, hadLease);
+            state = "Reconnecting";
+            detail = "Connection interrupted. Reconnecting automatically (attempt " + retryAttempt + "/5). Tap Cancel to stop.";
+            retryPending = true;
+            ConnectionReport.stage(ConnectionReport.Stage.RECONNECT_SCHEDULED);
+            showNotification(detail);
+            retryTask = () -> {
+                retryPending = false;
+                Vault current = new Vault(this);
+                if (!reconnectAllowed || !accessToken.equals(current.token()) || !accountOrigin.equals(current.endpoint())) {
+                    requestStop(); return;
+                }
+                beginAttempt();
+            };
+            main.postDelayed(retryTask, delay);
+            return;
+        }
+        if (reconnectAllowed && retryFailure && retryAttempt >= RetryPolicy.MAX_RETRIES) {
+            detail = "Could not restore the connection after five automatic retries. Tap Connect to try again or open Connection report.";
+            ConnectionReport.stage(ConnectionReport.Stage.RECONNECT_EXHAUSTED);
+        }
+        reconnectAllowed = false;
+        stopping.set(true);
+        if (foreground) { stopForeground(STOP_FOREGROUND_REMOVE); foreground = false; }
+        state = "Disconnected";
+        stopSelf();
     }
 
     private synchronized void progress(String message) throws Exception {
@@ -43,16 +98,15 @@ public final class TunnelService extends VpnService {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && "STOP".equals(intent.getAction())) { stopTunnel(); return START_NOT_STICKY; }
+        if (intent != null && "STOP".equals(intent.getAction())) { requestStop(); return START_NOT_STICKY; }
         if (intent == null) { stopSelf(startId); return START_NOT_STICKY; }
-        if (stopping.get() || (worker != null && worker.isAlive()) || !running.compareAndSet(false, true)) return START_NOT_STICKY;
-        if (VpnService.prepare(this) != null) { running.set(false); stopSelf(); return START_NOT_STICKY; }
-        if(proxyRetrySeconds()>0){running.set(false);state="Disconnected";detail="Upstream proxy cooling down. Retry in "+proxyRetrySeconds()+" seconds.";stopSelf(startId);return START_NOT_STICKY;}
-        state = "Connecting"; detail = "Starting VPN service…";
-        ConnectionReport.stage(ConnectionReport.Stage.START);
-        showNotification("Connecting securely…");
-        final String profileId = intent.getStringExtra("profile_id");
-        worker = new Thread(() -> runTunnel(profileId), "tpp-tunnel"); worker.start();
+        if (stopping.get() || retryPending || (worker != null && worker.isAlive()) || running.get()) return START_NOT_STICKY;
+        if (VpnService.prepare(this) != null) { stopSelf(); return START_NOT_STICKY; }
+        Vault vault = new Vault(this);
+        activeProfile = intent.getStringExtra("profile_id");
+        accessToken = vault.token(); accountOrigin = vault.endpoint();
+        retryAttempt = 0; reconnectAllowed = true;
+        beginAttempt();
         return START_NOT_STICKY;
     }
     private void showNotification(String text) {
@@ -70,7 +124,7 @@ public final class TunnelService extends VpnService {
     private void runTunnel(String profileId) {
         synchronized (this) {
             if (!running.get()) return;
-            state = "Connecting"; detail = "Starting VPN service…"; uploaded = downloaded = 0; latency = -1;
+            state = retryAttempt == 0 ? "Connecting" : "Reconnecting"; detail = "Starting VPN service…"; uploaded = downloaded = 0; latency = -1;
         }
         phase = "Starting VPN service";
         xrayLease = null;
@@ -79,10 +133,11 @@ public final class TunnelService extends VpnService {
             while (running.get()) {
                 if (android.os.SystemClock.elapsedRealtime() >= leaseDeadline) {
                     ConnectionReport.stage(ConnectionReport.Stage.WATCHDOG_TIMEOUT);
-                    detail = "Connecting".equals(state)
+                    detail = !"Connected".equals(state)
                         ? "Timed out: " + phase + ". Share this startup stage with support."
                         : "Account check timed out. Reconnect when the service is reachable.";
                     // Publish failure before cleanup, including if native startup is blocked.
+                    retryFailure = true;
                     stopTunnel(); return;
                 }
                 try { Thread.sleep(500); } catch (InterruptedException ignored) { return; }
@@ -115,7 +170,7 @@ public final class TunnelService extends VpnService {
             }
             JSONObject result = api.connect(profileId, this::progress);
             if (!"xray".equals(result.optString("engine"))) throw new Exception("Only imported connection profiles are supported. Ask your admin to replace this profile.");
-            xrayLease=result.getString("lease");
+            xrayLease=result.getString("lease"); hadLease=true;
             leaseDeadline=android.os.SystemClock.elapsedRealtime()+30000;
             synchronized(xrayLock) {
                 if(!running.get()) return;
@@ -129,7 +184,8 @@ public final class TunnelService extends VpnService {
             if (running.get()) {
                 XrayEngine engine = xray;
                 int proxyStatus=engine==null?0:engine.upstreamStatus();
-                if(proxyStatus!=0){error=new ProxyFailure(proxyStatus);proxyRetryAt=android.os.SystemClock.elapsedRealtime()+30000;}
+                if(proxyStatus!=0){error=new ProxyFailure(proxyStatus);proxyFailure=true;}
+                retryFailure=RetryPolicy.transientFailure(error);
                 ConnectionReport.failure(null, error);
                 String reason = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
                 reason = reason.replaceAll("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "[redacted UUID]");
@@ -172,7 +228,7 @@ public final class TunnelService extends VpnService {
         // Use the pinned core's HTTPS connectivity target. Admin-host reachability
         // is checked independently by authenticated API calls and heartbeats.
         latency = engine.probe("");
-        if (latency < 0) throw new Exception("The tunnel HTTPS check failed.");
+        if (latency < 0) throw new RetryPolicy.TransportFailure("The tunnel HTTPS check failed.");
         synchronized (this) {
             if (!running.get()) return;
             connectedAt=android.os.SystemClock.elapsedRealtime();
@@ -193,13 +249,23 @@ public final class TunnelService extends VpnService {
                     else if ("downlink".equals(values[1])) downloaded += count;
                 }
             }
-            JSONObject check = api.request("/v1/xray/heartbeat", new JSONObject().put("lease", lease)
-                .put("up", uploaded).put("down", downloaded), true);
-            if (!check.optBoolean("ok")) throw new Exception("Account check failed.");
-            leaseDeadline = android.os.SystemClock.elapsedRealtime() + 30000;
+            try {
+                JSONObject check = api.request("/v1/xray/heartbeat", new JSONObject().put("lease", lease)
+                    .put("up", uploaded).put("down", downloaded), true);
+                if (!check.optBoolean("ok")) throw new Exception("Account check failed.");
+                // Failed heartbeats never extend the account authorization deadline.
+                leaseDeadline = android.os.SystemClock.elapsedRealtime() + 30000;
+            } catch (Exception error) {
+                if (!running.get()) break;
+                if (!RetryPolicy.transientFailure(error)) throw error;
+                ConnectionReport.stage(ConnectionReport.Stage.HEARTBEAT_RETRY);
+                // Keep an authorized tunnel alive only within its existing lease.
+                try { Thread.sleep(1500); } catch (InterruptedException cancelled) { break; }
+                continue;
+            }
             try { Thread.sleep(5000); } catch (InterruptedException ignored) { break; }
         }
-        if (running.get()) throw new Exception("The Xray engine stopped unexpectedly.");
+        if (running.get()) throw new RetryPolicy.TransportFailure("The Xray engine stopped unexpectedly.");
     }
     private void closeTransport() {
         Api.clearTunnel();
@@ -219,19 +285,23 @@ public final class TunnelService extends VpnService {
         // Native startup holds xrayLock and stopLoop can wait on native I/O.
         // Lifecycle callbacks must never acquire that lock or call native shutdown.
         new Thread(() -> {
-            try { closeTransport(); }
+            try {
+                closeTransport();
+                Thread previous = worker;
+                if (previous != null && previous != Thread.currentThread()) {
+                    try { previous.join(); } catch (InterruptedException cancelled) { Thread.currentThread().interrupt(); }
+                }
+            }
             finally {
                 main.post(() -> {
-                    if (foreground) { stopForeground(STOP_FOREGROUND_REMOVE); foreground = false; }
-                    state = "Disconnected";
-                    ConnectionReport.stage(ConnectionReport.Stage.CLEANUP_COMPLETE);
-                    stopSelf();
+                    onCleanupComplete();
                 });
             }
         }, "tpp-tunnel-cleanup").start();
     }
-    @Override public void onRevoke() { stopTunnel(); }
-    @Override public void onDestroy() { stopTunnel(); super.onDestroy(); }
+    @Override public void onRevoke() { requestStop(); }
+    @Override public void onDestroy() { requestStop(); super.onDestroy(); }
 }
+
 
 

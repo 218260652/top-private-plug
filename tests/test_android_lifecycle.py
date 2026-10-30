@@ -46,6 +46,7 @@ public class ShutdownHarness {
     int stopCalls;
     void stopSelf(){stopCalls++;}
     void stopForeground(int flags){}
+    void onCleanupComplete(){if(foreground){stopForeground(STOP_FOREGROUND_REMOVE);foreground=false;}state="Disconnected";stopSelf();}
     static class FakeMain {
         final BlockingQueue<Runnable> queue=new LinkedBlockingQueue<>();
         void post(Runnable r){queue.add(r);}
@@ -88,4 +89,5 @@ public class ShutdownHarness {
             subprocess.run(['javac', '-d', tmp, str(java), str(report), str(report.with_name('ProxyFailure.java'))], check=True, capture_output=True, text=True, timeout=30)
             result = subprocess.run(['java', '-cp', tmp, 'za.co.topprivateplug.ShutdownHarness'], check=True, capture_output=True, text=True, timeout=8)
             self.assertIn('PASS:', result.stdout)
+
 

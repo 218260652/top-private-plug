@@ -42,7 +42,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Verify Android cancellation with blocked native startup and shutdown
-        run: python -m unittest tests.test_android_lifecycle tests.test_android_access tests.test_connection_report tests.test_control_policy tests.test_api_tunnel_route tests.test_premium_policy -v
+        run: python -m unittest tests.test_android_lifecycle tests.test_android_access tests.test_connection_report tests.test_control_policy tests.test_api_tunnel_route tests.test_premium_policy tests.test_reconnect -v
       - name: Preserve pilot signing identity
         uses: actions/cache@v4
         with:
@@ -115,11 +115,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          tag="pilot-0.1.14-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          zip -j Top-private-Plug-0.1.14-pilot.zip Top-private-Plug-0.1.14-pilot.apk
-          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.14-ui-screenshots.zip > SHA256SUMS
-          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.14 pilot" --prerelease --notes "Premium native interface with animated globe, activation and connection states, real usage charts, MTN and Telkom plans, WhatsApp requests, logout, appearance preferences and verified in-app update downloads. Keeps the tested saved-profile connection flow. Carrier connectivity requires a phone test."
-          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.14-ui-screenshots.zip SHA256SUMS
+          tag="pilot-0.1.15-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          zip -j Top-private-Plug-0.1.15-pilot.zip Top-private-Plug-0.1.15-pilot.apk
+          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.15-ui-screenshots.zip > SHA256SUMS
+          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.15 pilot" --prerelease --notes "Still Home screen with a static Earth background and stationary connection button. Up to five controlled automatic reconnects for transient failures, cancellable by the user. Temporary heartbeat failures retry within the existing account lease. Keeps account authorization and certificate checks. Physical-device carrier testing remains required."
+          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.15-ui-screenshots.zip SHA256SUMS
           gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
         if: always()
@@ -130,10 +130,11 @@ jobs:
           path: |
             Top-private-Plug-*-pilot.apk
             Top-private-Plug-rebuild-source.tar.gz
-            Top-private-Plug-0.1.14-ui-screenshots.zip
+            Top-private-Plug-0.1.15-ui-screenshots.zip
             ui-screenshots/*.png
           if-no-files-found: error
           retention-days: 1
+
 
 
 

@@ -10,7 +10,7 @@ final class PremiumArt extends View {
     final MainActivity a; final String mode; final Paint p=new Paint(3);
     PremiumArt(MainActivity a,String mode,int height){super(a);this.a=a;this.mode=mode;setMinimumHeight(a.dp(height));setContentDescription(mode.equals("remaining")?"Remaining account data":"VPN "+mode);}
     float d(float n){return a.dp(n);}
-    boolean motionEnabled(){return a.visible&&!a.prefs.getBoolean("reduce_motion",false)&&android.animation.ValueAnimator.areAnimatorsEnabled();}
+    boolean motionEnabled(){return !a.stillHome()&&a.visible&&!a.prefs.getBoolean("reduce_motion",false)&&android.animation.ValueAnimator.areAnimatorsEnabled();}
     void line(Canvas c,int color,float width){p.reset();p.setAntiAlias(true);p.setColor(color);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(d(width));p.setStrokeCap(Paint.Cap.ROUND);}
     void label(Canvas c,String s,float x,float y,int size,int color,boolean bold){p.reset();p.setAntiAlias(true);p.setColor(color);p.setTextSize(d(size));p.setTypeface(bold?Typeface.create("sans-serif-medium",0):Typeface.create("sans-serif",0));p.setTextAlign(Paint.Align.CENTER);c.drawText(s,x,y,p);}
     @Override protected void onDraw(Canvas c){
@@ -51,3 +51,4 @@ final class PremiumArt extends View {
         java.text.SimpleDateFormat f=new java.text.SimpleDateFormat(a.graphHours==168?"dd MMM":"HH:mm",Locale.UK);f.setTimeZone(java.util.TimeZone.getTimeZone("Africa/Johannesburg"));label(c,f.format(new java.util.Date(first*1000)),l+d(12),h-d(12),10,a.MUTED,false);label(c,f.format(new java.util.Date(last*1000)),r-d(17),h-d(12),10,a.MUTED,false);
     }
 }
+
