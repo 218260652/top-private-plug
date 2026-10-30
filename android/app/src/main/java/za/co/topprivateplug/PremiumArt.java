@@ -23,10 +23,11 @@ final class PremiumArt extends View {
         } else if(mode.equals("power")||mode.equals("remaining")){
             boolean gauge=mode.equals("remaining"),connected="Connected".equals(TunnelService.state),connecting="Connecting".equals(TunnelService.state);
             float r=Math.min(w,h)*.39f;int color=gauge?a.CYAN:connected?a.MINT:a.CYAN;
+            if(!gauge){p.reset();p.setAntiAlias(true);p.setShader(new RadialGradient(cx,cy,r*1.3f,new int[]{color&0x16ffffff,color&0x33ffffff,0x00000000},new float[]{0,.74f,1},Shader.TileMode.CLAMP));c.drawCircle(cx,cy,r*1.3f,p);p.setShader(null);}
             line(c,color,1);p.setAlpha(28);c.drawCircle(cx,cy,r+d(12),p);p.setStrokeWidth(d(12));p.setAlpha(18);c.drawCircle(cx,cy,r,p);
             line(c,a.LINE,gauge?13:3);c.drawCircle(cx,cy,r,p);
             RectF arc=new RectF(cx-r,cy-r,cx+r,cy+r);
-            if(gauge){long total=a.account==null?0:a.account.optLong("quota"),remaining=a.account==null?0:a.account.optLong("remaining_bytes");float fraction=Math.max(0,Math.min(1,(float)remaining/Math.max(1,total)));line(c,color,13);p.setShader(new SweepGradient(cx,cy,new int[]{a.CYAN,0xff346dff,0xff9c43ff,a.CYAN},null));c.drawArc(arc,-90,360*fraction,false,p);p.setShader(null);label(c,a.account==null?"—":a.bytes(remaining),cx,cy-d(1),21,a.TEXT,true);label(c,"remaining",cx,cy+d(21),13,a.MUTED,false);}
+            if(gauge){long total=a.account==null?0:a.account.optLong("quota"),remaining=a.account==null?0:a.account.optLong("remaining_bytes");float fraction=Math.max(0,Math.min(1,(float)remaining/Math.max(1,total)));line(c,color,13);p.setShader(new SweepGradient(cx,cy,new int[]{a.CYAN,0xff346dff,0xff9c43ff,a.CYAN},null));c.drawArc(arc,-90,360*fraction,false,p);p.setShader(null);label(c,a.account==null?"—":a.bytes(remaining),cx,cy-d(1),a.account!=null&&a.bytes(remaining).length()>9?16:21,a.TEXT,true);label(c,"remaining",cx,cy+d(21),13,a.MUTED,false);}
             else {line(c,color,3);c.drawCircle(cx,cy,r,p);a.drawIcon(c,connecting?"shield":"power",cx-d(26),cy-d(26),d(52),color);}
             line(c,color,4);p.setShadowLayer(d(9),0,0,color);c.drawArc(arc,angle,connecting?95:18,false,p);p.clearShadowLayer();
         } else if(mode.startsWith("icon:")){a.drawIcon(c,mode.substring(5),cx-d(16),cy-d(16),d(32),a.CYAN);}

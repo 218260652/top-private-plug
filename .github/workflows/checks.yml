@@ -85,9 +85,11 @@ jobs:
       - name: Capture and verify native phone interfaces
         run: |
           sudo chmod a+rw /dev/kvm
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/tpp-avd"
+          mkdir -p "$ANDROID_AVD_HOME"
           sdkmanager 'emulator' 'system-images;android-35;google_apis;x86_64' > /tmp/emulator-install.log
-          echo no | avdmanager create avd -n premium-ui -k 'system-images;android-35;google_apis;x86_64' --device pixel_6
-          echo 'disk.dataPartition.size=2G' >> "$HOME/.android/avd/premium-ui.avd/config.ini"
+          echo no | avdmanager create avd -n premium-ui -k 'system-images;android-35;google_apis;x86_64' --device pixel_6 -p "$ANDROID_AVD_HOME/premium-ui.avd"
+          echo 'disk.dataPartition.size=2G' >> "$ANDROID_AVD_HOME/premium-ui.avd/config.ini"
           df -h /
           "$ANDROID_HOME/emulator/emulator" -avd premium-ui -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot > /tmp/emulator.log 2>&1 &
           timeout 90 adb wait-for-device || { cat /tmp/emulator.log; exit 1; }
