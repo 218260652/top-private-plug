@@ -64,14 +64,16 @@ class Database:
     @contextmanager
     def connect(self):
         import psycopg
+        from psycopg_pool import PoolTimeout
         try:
             with self.pool.connection() as connection:
                 with connection.transaction():
                     connection.execute('SET LOCAL search_path TO "' + self.schema + '"')
                     yield Connection(connection)
-        except psycopg.Error as error:
-            # Avoid disclosing hostnames, passwords or SQL contents in HTTP/logs.
-            raise sqlite3.OperationalError('Persistent database operation failed (SQLSTATE ' + (error.sqlstate or 'connection') + ')') from None
+        except (psycopg.Error, PoolTimeout) as error:
+            # Pool timeouts should return a safe JSON 503, not an HTML 500.
+            sqlstate = error.sqlstate if isinstance(error, psycopg.Error) else None
+            raise sqlite3.OperationalError('Persistent database operation failed (SQLSTATE ' + (sqlstate or 'connection') + ')') from None
 
     def close(self):
         self.pool.close()
