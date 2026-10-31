@@ -29,11 +29,12 @@ def method(source, name):
 class AndroidShutdownTests(unittest.TestCase):
     def test_cancel_is_nonblocking_during_native_start_and_stop(self):
         source = (ROOT / 'android/app/src/main/java/za/co/topprivateplug/TunnelService.java').read_text()
-        harness = r'''
+        harness = r'''package za.co.topprivateplug;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 public class ShutdownHarness {
     static final int STOP_FOREGROUND_REMOVE=1;
+    static class Api { static void clearTunnel(){} }
     final AtomicBoolean running=new AtomicBoolean(true), stopping=new AtomicBoolean(false);
     final Object xrayLock=new Object();
     final FakeMain main=new FakeMain();
@@ -45,6 +46,7 @@ public class ShutdownHarness {
     int stopCalls;
     void stopSelf(){stopCalls++;}
     void stopForeground(int flags){}
+    void onCleanupComplete(){if(foreground){stopForeground(STOP_FOREGROUND_REMOVE);foreground=false;}state="Disconnected";stopSelf();}
     static class FakeMain {
         final BlockingQueue<Runnable> queue=new LinkedBlockingQueue<>();
         void post(Runnable r){queue.add(r);}
@@ -83,6 +85,9 @@ public class ShutdownHarness {
         with tempfile.TemporaryDirectory() as tmp:
             java = Path(tmp) / 'ShutdownHarness.java'
             java.write_text(harness)
-            subprocess.run(['javac', str(java)], check=True, capture_output=True, text=True, timeout=30)
-            result = subprocess.run(['java', '-cp', tmp, 'ShutdownHarness'], check=True, capture_output=True, text=True, timeout=8)
+            report = ROOT / 'android/app/src/main/java/za/co/topprivateplug/ConnectionReport.java'
+            subprocess.run(['javac', '-d', tmp, str(java), str(report), str(report.with_name('ProxyFailure.java'))], check=True, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(['java', '-cp', tmp, 'za.co.topprivateplug.ShutdownHarness'], check=True, capture_output=True, text=True, timeout=8)
             self.assertIn('PASS:', result.stdout)
+
+

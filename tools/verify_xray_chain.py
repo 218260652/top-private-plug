@@ -29,6 +29,12 @@ def main():
     config['inbounds'] = []
     config['log']['loglevel'] = 'debug'
     with tempfile.TemporaryDirectory() as directory:
+        root = Path(__file__).resolve().parents[1]
+        harness = Path(directory) / 'ControlFixture.java'
+        harness.write_text('package za.co.topprivateplug;\npublic class ControlFixture {\n public static void main(String[] args)throws Exception {\n  System.out.println(ControlPolicy.inbound(10809));\n  System.out.println(ControlPolicy.rules("https://127.0.0.1:443",true));\n }\n}')
+        subprocess.run(['javac', '-d', directory, str(harness), str(root / 'android/app/src/main/java/za/co/topprivateplug/ControlPolicy.java')], check=True)
+        policy = subprocess.check_output(['java', '-cp', directory, 'za.co.topprivateplug.ControlFixture'], text=True).splitlines()
+        config['_fixture_control'] = {'inbound': json.loads(policy[0]), 'rules': json.loads(policy[1])}
         binary = Path(directory) / 'chain-test'
         subprocess.run(['go', 'build', '-o', str(binary), str(Path(__file__).with_name('xray_chain_harness.go').resolve())],
                        cwd=args.source.resolve(), check=True, timeout=600)

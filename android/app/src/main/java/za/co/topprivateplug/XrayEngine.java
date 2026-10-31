@@ -14,6 +14,7 @@ import org.json.JSONObject;
 final class XrayEngine {
     private final CoreController core;
     private volatile String warning = "";
+    private volatile int upstreamStatus;
     private final List<String> secrets = new ArrayList<>();
     XrayEngine(File directory) {
         Libv2ray.initCoreEnv(directory.getAbsolutePath(), "");
@@ -22,6 +23,8 @@ final class XrayEngine {
             @Override public long shutdown() { return 0; }
             @Override public long onEmitStatus(long code, String text) {
                 if (code == 100 && text != null) {
+                    int status=ProxyFailure.status(text);
+                    if(status!=0 && upstreamStatus!=429)upstreamStatus=status;
                     String lower = text.toLowerCase(Locale.ROOT);
                     if (lower.contains("failed") || lower.contains("error") || lower.contains("eof") || lower.contains("rejected")) {
                         warning = redact(text);
@@ -59,9 +62,12 @@ final class XrayEngine {
         core.startLoop(parsed.toString(), fd);
     }
     String diagnostic() { return warning; }
+    int upstreamStatus() { return upstreamStatus; }
+    void clearUpstreamStatus() { upstreamStatus=0; }
     long probe(String url) throws Exception { return core.measureDelay(url); }
     String traffic() { return core.queryAllOutboundTrafficStats(); }
     boolean running() { return core.getIsRunning(); }
     void stop() { try { core.stopLoop(); } catch (Exception ignored) {} }
 }
+
 
