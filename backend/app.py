@@ -11,7 +11,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .store import Fault, Store
+from .store import Fault, Store, digest
 from . import xray
 
 
@@ -46,8 +46,14 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
                 if request.path != '/admin/api/login':
                     store.admin_auth(request.cookies.get('tpp_admin', ''))
             if request.path.startswith('/v1/'):
-                # Only trust forwarded client IP from a loopback reverse proxy.
-                limiter.check(('api', peer(request)), 120)
+                # Many trial devices can share a NAT address. Bound each bearer
+                # separately while preserving an aggregate rate limit per IP.
+                authorization = request.headers.get('Authorization', '')
+                if authorization.startswith('Bearer '):
+                    limiter.check(('api_authenticated', peer(request)), 1800)
+                    limiter.check(('api_device', digest(authorization)), 120)
+                else:
+                    limiter.check(('api_public', peer(request)), 360)
             response = await handler(request)
         except Fault as error:
             response = web.json_response({'error': error.message}, status=error.status)
@@ -143,12 +149,12 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
         return web.json_response(xray.heartbeat(store, token(request), await body(request)))
 
     async def challenge(request):
-        limiter.check(('challenge', peer(request)), 30)
+        limiter.check(('challenge', peer(request)), 300)
         data = await body(request)
         return web.json_response(store.challenge(data.get('public_key', ''), data.get('purpose', '')))
 
     async def activate(request):
-        limiter.check(('activate', peer(request)), 10, 300)
+        limiter.check(('activate', peer(request)), 150, 300)
         return web.json_response(store.activate(await body(request)))
 
     async def status(request):
