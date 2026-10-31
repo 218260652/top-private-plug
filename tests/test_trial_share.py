@@ -35,16 +35,16 @@ class TrialSharingTests(unittest.TestCase):
         return xray.connect(self.store,auth['token'],
                             dict(proof(self.store,private,public,'connect'),profile_id=self.profile['id']))
 
-    def test_one_trial_code_100_devices_shared_expiry_and_tokens(self):
+    def test_one_trial_code_50_devices_shared_expiry_and_tokens(self):
         issued=self.issue()
         first=device()
         first_auth=self.activate(issued['code'],first)
         deadline=first_auth['account']['expires']
-        devices=[first] + [device() for _ in range(99)]
+        devices=[first] + [device() for _ in range(49)]
         for identity in devices[1:]:
             self.activate(issued['code'],identity)
         data=self.store.account(issued['account']['id'])
-        self.assertEqual((data['device_count'], data['device_limit']), (100,100))
+        self.assertEqual((data['device_count'], data['device_limit']), (50,50))
         self.assertEqual((data['expires'],data['quota']), (deadline,100))
         self.assertEqual(self.store.client_auth(first_auth['token'])['auth_device_key'],first[1])
         with self.assertRaises(Fault) as error:
@@ -130,7 +130,7 @@ class TrialSharingTests(unittest.TestCase):
 
     def test_concurrent_activation_limit_is_atomic(self):
         issued=self.issue()
-        devices=[device() for _ in range(102)]
+        devices=[device() for _ in range(52)]
         def attempt(identity):
             try:
                 self.activate(issued['code'],identity)
@@ -140,8 +140,8 @@ class TrialSharingTests(unittest.TestCase):
                 return False
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
             accepted=list(pool.map(attempt,devices))
-        self.assertEqual(sum(accepted),100)
-        self.assertEqual(self.store.account(issued['account']['id'])['device_count'],100)
+        self.assertEqual(sum(accepted),50)
+        self.assertEqual(self.store.account(issued['account']['id'])['device_count'],50)
 
 
 if __name__=='__main__':

@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY, label TEXT NOT NULL, ki
  created INTEGER NOT NULL, slot INTEGER);
 CREATE TABLE IF NOT EXISTS tokens(hash TEXT PRIMARY KEY, account TEXT NOT NULL REFERENCES accounts(id),
  expires INTEGER NOT NULL);
--- A trial is one account and one shared quota, with up to 100 distinct public keys.
+-- A trial is one account and one shared quota, with up to 50 distinct public keys.
 -- Paid tokens and sessions retain their original single-device schema.
 CREATE TABLE IF NOT EXISTS trial_devices(account TEXT NOT NULL REFERENCES accounts(id),
  device_key TEXT NOT NULL, PRIMARY KEY(account,device_key));
@@ -260,7 +260,7 @@ class Store:
         r = dict(row)
         for k in ['key', 'code_hash', 'profiles', 'slot']:
             r.pop(k, None)
-        r['device_limit'] = 100 if row['kind'] == 'trial' else 1
+        r['device_limit'] = 50 if row['kind'] == 'trial' else 1
         r['device_count'] = int(r.get('device_count', 0)) if row['kind'] == 'trial' else int(row['key'] is not None)
         r['profile_ids'] = json.loads(row['profiles'])
         r['remaining_bytes'] = max(0, row['quota'] - row['used'])
@@ -346,8 +346,8 @@ class Store:
                 registered = db.execute('SELECT 1 FROM trial_devices WHERE account=? AND device_key=?', (row['id'], key)).fetchone()
                 if not registered:
                     count = db.execute('SELECT COUNT(*) FROM trial_devices WHERE account=?', (row['id'],)).fetchone()[0]
-                    if count >= 100:
-                        raise Fault('Trial device limit reached (100 devices)', 409)
+                    if count >= 50:
+                        raise Fault('Trial device limit reached (50 devices)', 409)
                     db.execute('INSERT INTO trial_devices(account,device_key) VALUES(?,?)', (row['id'], key))
                 if row['activated'] is None:
                     db.execute('UPDATE accounts SET activated=?,expires=?,key=? WHERE id=?',
