@@ -5,14 +5,63 @@ const $ = id => document.getElementById(id);
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const gb = n => (n / 1e9).toLocaleString(undefined, {maximumFractionDigits: 3}) + ' GB';
 const date = n => n == null ? 'Starts on activation' : new Date(n * 1000).toLocaleString('en-ZA', {timeZone: 'Africa/Johannesburg'}) + ' SAST';
-function notice(message) { $('notice').textContent = message; $('notice').hidden = false; }
-async function api(path, method = 'GET', body) {
-  const response = await fetch('/admin/api/' + path, {method, credentials: 'same-origin', headers: {'Content-Type':'application/json','X-TPP-Request':'1'}, body: body === undefined ? undefined : JSON.stringify(body)});
-  const data = await response.json();
-  if (!response.ok) { if (response.status === 401) { $('workspace').hidden = true; $('login-panel').hidden = false; } throw Error(data.error || 'Request failed'); }
-  return data;
+function notice(message, retry = false) {
+  $('notice').textContent = message; $('notice').hidden = false;
+  $('retry-connect').hidden = !retry;
 }
-async function refresh() { state = await api('state'); $('login-panel').hidden = true; $('workspace').hidden = false; render(); }
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+function friendlyError(error) {
+  if (error.name === 'AbortError') return 'The VPN admin server timed out. Check the hosting service and database, then retry.';
+  if (error instanceof TypeError) return 'Cannot reach the VPN admin server. Check your internet connection and hosting status, then retry.';
+  return error.message || 'Unexpected admin server error';
+}
+// Only safe GET requests are retried. Never replay a profile or account creation.
+async function requestJson(path, options = {}) {
+  const attempts = !options.method || options.method === 'GET' ? 3 : 1;
+  for (let i = 0; i < attempts; i++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(path, {...options, credentials:'same-origin', cache:'no-store', signal:controller.signal});
+      if (!(response.headers.get('Content-Type') || '').toLowerCase().includes('application/json')) {
+        if (response.status >= 500 && i < attempts-1) {await delay(1000 * (i+1)); continue;}
+        throw Error('Admin server returned HTTP ' + response.status + ' instead of JSON. Check server logs.');
+      }
+      const data = await response.json();
+      if (!response.ok) {
+        if (response.status === 401 && path.startsWith('/admin/api/')) {
+          $('workspace').hidden = true; $('login-panel').hidden = false;
+        }
+        if ([502,503,504].includes(response.status) && i < attempts-1) {
+          await delay(1000 * (i+1)); continue;
+        }
+        throw Error(data.error || 'Request failed (HTTP ' + response.status + ')');
+      }
+      return data;
+    } catch(error) {
+      if (i === attempts-1 || !(error instanceof TypeError || error.name === 'AbortError')) throw Error(friendlyError(error));
+      await delay(1000 * (i+1));
+    } finally { clearTimeout(timer); }
+  }
+}
+async function api(path, method = 'GET', body) {
+  return requestJson('/admin/api/' + path, {method,
+    headers:{'Content-Type':'application/json','X-TPP-Request':'1'},
+    body: body === undefined ? undefined : JSON.stringify(body)});
+}
+let refreshInFlight = null;
+async function refresh() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const result = await api('state');
+    if (!Array.isArray(result.accounts) || !Array.isArray(result.profiles) || !Array.isArray(result.audit))
+      throw Error('Server returned incomplete profile data.');
+    state = result; $('login-panel').hidden = true; $('workspace').hidden = false;
+    if (!$('retry-connect').hidden) $('notice').hidden = true;
+    $('retry-connect').hidden = true; render();
+  })().finally(() => {refreshInFlight = null;});
+  return refreshInFlight;
+}
 function view(name) {
   currentView = name;
   document.querySelectorAll('.view').forEach(el => el.hidden = el.id !== name + '-view');
@@ -56,20 +105,61 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
 }catch(error){notice(error.message);}});
 async function initialize() {
   try {
-    const response=await fetch('/setup-status',{credentials:'same-origin'});
-    const setup=await response.json();
+    const setup=await requestJson('/setup-status');
     if(setup.setup_required){
       $('login-panel').hidden=false;
       notice('First-time setup: open this service in Render → Environment. Add TPP_BOOTSTRAP_PASSWORD with a unique password of at least 14 characters, then save and redeploy. Sign in here as admin with that password.');
       return;
     }
     await refresh();
-  } catch(e){if(e.message!=='Sign in to continue')notice(e.message);}
+  } catch(e){if(e.message!=='Sign in to continue')notice(friendlyError(e), true);}
 }
+$('retry-connect').onclick = () => {notice('Reconnecting…');initialize();};
 view(currentView);initialize();
-setInterval(()=>{if(!$('workspace').hidden)refresh().catch(e=>notice(e.message));},30000);
+setInterval(()=>{if(!$('workspace').hidden && !refreshInFlight)refresh().catch(e=>notice(friendlyError(e),true));},30000);
 
 
-$('xray-form').addEventListener('submit',e=>{e.preventDefault();const f=e.target;busy(f,async()=>{const d=new FormData(f),id=d.get('id');await api('xray-profiles'+(id?'/'+id:''),id?'PUT':'POST',{name:d.get('name'),carrier:d.get('carrier'),config:d.get('config'),allow_insecure:d.has('allow_insecure'),enabled:d.has('enabled')});f.reset();f.elements.id.value='';$('xray-title').textContent='Import connection JSON';await refresh();notice('Imported. Assign this profile to an account and use the Xray-enabled APK.');});});
-$('xray-reset').onclick=()=>{$('xray-form').reset();$('xray-form').elements.id.value='';$('xray-title').textContent='Import connection JSON';};
+function checkImport(value) {
+  let config;
+  try { config = JSON.parse(value); }
+  catch (_) {throw Error('Invalid JSON: paste the complete unlocked Xray configuration.');}
+  if (!config || !Array.isArray(config.outbounds)) throw Error('Missing outbounds array.');
+  const tunnels = config.outbounds.filter(o => o && ['vless','trojan'].includes(o.protocol));
+  if (tunnels.length !== 1) throw Error('Use exactly one VLESS or Trojan outbound per profile.');
+  const outbound = tunnels[0];
+  if (outbound.protocol === 'vless') {
+    const server = outbound.settings?.vnext?.[0];
+    const uuid=server?.users?.[0]?.id;
+    if (!server?.address || server.address.startsWith('REPLACE_') || !Number.isInteger(server.port) ||
+        typeof uuid !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid))
+      throw Error('VLESS requires a real server hostname, numeric port and valid UUID. Replace the example values.');
+    const serverName=outbound.streamSettings?.tlsSettings?.serverName;
+    if (typeof serverName !== 'string' || !serverName || serverName.startsWith('REPLACE_'))
+      throw Error('Replace the example TLS certificate hostname with the real server name.');
+  }
+  if (!['tcp','raw',undefined].includes(outbound.streamSettings?.network) || outbound.streamSettings?.security !== 'tls')
+    throw Error('Currently supported transport: TCP with TLS.');
+  return outbound.protocol.toUpperCase();
+}
+$('vless-template').onclick = () => {
+  const form=$('xray-form');
+  if (form.elements.config.value.trim() && !confirm('Replace your current JSON with a VLESS example?')) return;
+  form.elements.config.value = "{\n  \"dns\": {\n    \"servers\": [\n      \"1.1.1.1\"\n    ]\n  },\n  \"outbounds\": [\n    {\n      \"protocol\": \"vless\",\n      \"settings\": {\n        \"vnext\": [\n          {\n            \"address\": \"REPLACE_WITH_SERVER_HOST\",\n            \"port\": 443,\n            \"users\": [\n              {\n                \"id\": \"REPLACE_WITH_VLESS_UUID\",\n                \"encryption\": \"none\"\n              }\n            ]\n          }\n        ]\n      },\n      \"streamSettings\": {\n        \"network\": \"tcp\",\n        \"security\": \"tls\",\n        \"tlsSettings\": {\n          \"serverName\": \"REPLACE_WITH_CERTIFICATE_HOST\",\n          \"allowInsecure\": false\n        }\n      }\n    }\n  ]\n}";
+  form.elements.allow_insecure.checked=false;
+  $('import-feedback').textContent='Replace all example hostnames and the UUID with your actual supplier details. Keep TLS verification enabled.';
+  form.elements.config.focus();
+};
+$('validate-import').onclick = () => {
+  try {$('import-feedback').textContent=checkImport($('xray-form').elements.config.value)+' structure looks correct; the server validates it on save.';}
+  catch(error) {$('import-feedback').textContent=error.message;}
+};
+$('xray-form').addEventListener('submit',e=>{e.preventDefault();const f=e.target;busy(f,async()=>{
+  const d=new FormData(f),id=d.get('id'),protocol=checkImport(d.get('config'));
+  await api('xray-profiles'+(id?'/'+id:''),id?'PUT':'POST',
+    {name:d.get('name'),carrier:d.get('carrier'),config:d.get('config'),allow_insecure:d.has('allow_insecure'),enabled:d.has('enabled')});
+  f.reset();f.elements.id.value='';$('xray-title').textContent='Import connection JSON';
+  $('import-feedback').textContent='';await refresh();
+  notice(protocol+' profile saved. Assign to an access account; live connectivity still needs testing.');
+});});
+$('xray-reset').onclick=()=>{$('xray-form').reset();$('xray-form').elements.id.value='';$('xray-title').textContent='Import connection JSON';$('import-feedback').textContent='';};
 
