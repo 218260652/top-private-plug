@@ -115,11 +115,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          tag="pilot-0.1.15-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          zip -j Top-private-Plug-0.1.15-pilot.zip Top-private-Plug-0.1.15-pilot.apk
-          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.15-ui-screenshots.zip > SHA256SUMS
-          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.15 pilot" --prerelease --notes "Still Home screen with a static Earth background and stationary connection button. Up to five controlled automatic reconnects for transient failures, cancellable by the user. Temporary heartbeat failures retry within the existing account lease. Keeps account authorization and certificate checks. Physical-device carrier testing remains required."
-          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.15-ui-screenshots.zip SHA256SUMS
+          tag="pilot-0.1.16-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          zip -j Top-private-Plug-0.1.16-pilot.zip Top-private-Plug-0.1.16-pilot.apk
+          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.16-ui-screenshots.zip > SHA256SUMS
+          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.16 pilot" --prerelease --notes "Adds the Cell C network selector and Cell C WhatsApp plan/support requests; existing VLESS engine and account checks are retained. Cell C requires an assigned supplier profile. Still Home screen with a static Earth background and stationary connection button. Up to five controlled automatic reconnects for transient failures, cancellable by the user. Temporary heartbeat failures retry within the existing account lease. Keeps account authorization and certificate checks. Physical-device carrier testing remains required."
+          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.16-ui-screenshots.zip SHA256SUMS
           gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
         if: always()
@@ -130,7 +130,7 @@ jobs:
           path: |
             Top-private-Plug-*-pilot.apk
             Top-private-Plug-rebuild-source.tar.gz
-            Top-private-Plug-0.1.15-ui-screenshots.zip
+            Top-private-Plug-0.1.16-ui-screenshots.zip
             ui-screenshots/*.png
           if-no-files-found: error
           retention-days: 1

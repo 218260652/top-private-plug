@@ -18,7 +18,7 @@ final class PurchaseRequest {
     }
 
     static String supportUrl(String carrier,String accountId) {
-        String text="Hi, I need help with Top private Plug.\nNetwork: "+("MTN".equals(carrier)||"Telkom".equals(carrier)?carrier:"Not selected");
+        String text="Hi, I need help with Top private Plug.\nNetwork: "+("MTN".equals(carrier)||"Telkom".equals(carrier)||"Cell C".equals(carrier)?carrier:"Not selected");
         if(accountId!=null&&accountId.matches("[a-fA-F0-9-]{36}"))text+="\nAccount reference: "+accountId;
         try{return "https://wa.me/"+PHONE+"?text="+URLEncoder.encode(text,"UTF-8").replace("+","%20");}catch(java.io.UnsupportedEncodingException error){throw new IllegalStateException(error);}
     }

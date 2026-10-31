@@ -10,11 +10,12 @@ import java.net.URLDecoder;
 public class PremiumHarness {
  public static void main(String[] args)throws Exception {
   int[][] wanted={{50,30,7},{100,50,30},{135,80,30},{200,120,30}};
-  for(String network:new String[]{"MTN","Telkom"})for(int i=0;i<4;i++){
+  for(String network:new String[]{"MTN","Telkom","Cell C"})for(int i=0;i<4;i++){
    PlanCatalog.Plan p=PlanCatalog.PLANS[i];if(p.gigabytes!=wanted[i][0]||p.rand!=wanted[i][1]||p.days!=wanted[i][2])throw new AssertionError("Plan mismatch");
    String selection=p.gigabytes+" GB • R"+p.rand+" • "+p.days+" days",url=PurchaseRequest.url(false,selection,network,null),decoded=URLDecoder.decode(url,"UTF-8");
    if(!url.startsWith("https://wa.me/27703841868?text=")||!decoded.contains(selection)||!decoded.contains("Network: "+network))throw new AssertionError(url);
   }
+  for(String network:new String[]{"MTN","Telkom","Cell C"})if(!URLDecoder.decode(PurchaseRequest.supportUrl(network,null),"UTF-8").contains("Network: "+network))throw new AssertionError("Support network");
   TrafficMeter meter=new TrafficMeter();meter.sample(true,0,0,0);for(int t=1000;t<6000;t+=1000)meter.sample(true,0,0,t);meter.sample(true,6000000,12000000,6000);
   if(Math.abs(meter.uploadMbps-8)>0.0001||Math.abs(meter.downloadMbps-16)>0.0001)throw new AssertionError("Batched counter rate");
   meter.sample(true,6000000,12000000,7000);if(meter.downloadMbps!=16)throw new AssertionError("Hold latest measurement");
