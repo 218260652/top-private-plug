@@ -65,6 +65,16 @@ CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY, label TEXT NOT NULL, ki
  created INTEGER NOT NULL, slot INTEGER);
 CREATE TABLE IF NOT EXISTS tokens(hash TEXT PRIMARY KEY, account TEXT NOT NULL REFERENCES accounts(id),
  expires INTEGER NOT NULL);
+-- A trial is one account and one shared quota, with up to 100 distinct public keys.
+-- Paid tokens and sessions retain their original single-device schema.
+CREATE TABLE IF NOT EXISTS trial_devices(account TEXT NOT NULL REFERENCES accounts(id),
+ device_key TEXT NOT NULL, PRIMARY KEY(account,device_key));
+CREATE TABLE IF NOT EXISTS trial_tokens(hash TEXT PRIMARY KEY, account TEXT NOT NULL REFERENCES accounts(id),
+ device_key TEXT NOT NULL, expires INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS trial_xray_sessions(account TEXT NOT NULL REFERENCES accounts(id),
+ device_key TEXT NOT NULL, profile TEXT NOT NULL, version INTEGER NOT NULL,
+ lease TEXT NOT NULL, seen INTEGER NOT NULL, up INTEGER NOT NULL DEFAULT 0, down INTEGER NOT NULL DEFAULT 0,
+ PRIMARY KEY(account,device_key));
 CREATE TABLE IF NOT EXISTS challenges(id TEXT PRIMARY KEY, message TEXT NOT NULL, key TEXT NOT NULL,
  purpose TEXT NOT NULL, expires INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS tickets(hash TEXT PRIMARY KEY, account TEXT NOT NULL REFERENCES accounts(id),
@@ -95,6 +105,7 @@ class Store:
                 db.executescript(schema_sql(SCHEMA))
                 db.execute('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS slot BIGINT')
                 db.execute('CREATE UNIQUE INDEX IF NOT EXISTS account_slot ON accounts(slot)')
+                self._migrate_trial_devices(db)
             return
         with self.db() as db:
             db.execute('PRAGMA journal_mode=WAL')
@@ -102,6 +113,16 @@ class Store:
             if 'slot' not in {r['name'] for r in db.execute('PRAGMA table_info(accounts)')}:
                 db.execute('ALTER TABLE accounts ADD COLUMN slot INTEGER')
             db.execute('CREATE UNIQUE INDEX IF NOT EXISTS account_slot ON accounts(slot)')
+            self._migrate_trial_devices(db)
+
+    @staticmethod
+    def _migrate_trial_devices(db):
+        """Idempotently carry forward activated trial keys, tokens and live leases."""
+        db.execute("INSERT INTO trial_devices(account,device_key) SELECT id,key FROM accounts WHERE kind='trial' AND key IS NOT NULL ON CONFLICT(account,device_key) DO NOTHING")
+        db.execute("INSERT INTO trial_tokens(hash,account,device_key,expires) SELECT t.hash,t.account,a.key,t.expires FROM tokens t JOIN accounts a ON a.id=t.account WHERE a.kind='trial' AND a.key IS NOT NULL ON CONFLICT(hash) DO NOTHING")
+        db.execute("DELETE FROM tokens WHERE account IN (SELECT id FROM accounts WHERE kind='trial' AND key IS NOT NULL)")
+        db.execute("INSERT INTO trial_xray_sessions(account,device_key,profile,version,lease,seen,up,down) SELECT x.account,a.key,x.profile,x.version,x.lease,x.seen,x.up,x.down FROM xray_sessions x JOIN accounts a ON a.id=x.account WHERE a.kind='trial' AND a.key IS NOT NULL ON CONFLICT(account,device_key) DO NOTHING")
+        db.execute("DELETE FROM xray_sessions WHERE account IN (SELECT id FROM accounts WHERE kind='trial' AND key IS NOT NULL)")
 
     @contextmanager
     def db(self):
@@ -239,6 +260,8 @@ class Store:
         r = dict(row)
         for k in ['key', 'code_hash', 'profiles', 'slot']:
             r.pop(k, None)
+        r['device_limit'] = 100 if row['kind'] == 'trial' else 1
+        r['device_count'] = int(r.get('device_count', 0)) if row['kind'] == 'trial' else int(row['key'] is not None)
         r['profile_ids'] = json.loads(row['profiles'])
         r['remaining_bytes'] = max(0, row['quota'] - row['used'])
         r['status'] = ('deleted' if row['deleted'] else 'suspended' if row['suspended'] else
@@ -251,13 +274,18 @@ class Store:
 
     def account(self, account_id):
         with self.db() as db:
-            row = db.execute('SELECT * FROM accounts WHERE id=?', (account_id,)).fetchone()
+            row = db.execute('SELECT a.*, (SELECT COUNT(*) FROM trial_devices d WHERE d.account=a.id) AS device_count FROM accounts a WHERE a.id=?', (account_id,)).fetchone()
             if not row:
                 raise Fault('Account not found', 404)
             result = self.view(row)
             session = db.execute('SELECT up,down,started,seen FROM sessions WHERE account=?', (account_id,)).fetchone()
             result['session'] = dict(session) if session and session['seen'] > self.now() - 10 else None
-            imported = db.execute('SELECT up,down,seen FROM xray_sessions WHERE account=? AND seen>?', (account_id, self.now()-30)).fetchone()
+            if row['kind'] == 'trial':
+                imported = db.execute('SELECT SUM(up) AS up,SUM(down) AS down,MAX(seen) AS seen,COUNT(*) AS connected_devices FROM trial_xray_sessions WHERE account=? AND seen>?', (account_id, self.now()-30)).fetchone()
+                if imported['seen'] is None:
+                    imported = None
+            else:
+                imported = db.execute('SELECT up,down,seen FROM xray_sessions WHERE account=? AND seen>?', (account_id, self.now()-30)).fetchone()
             if imported:
                 result['session'] = dict(imported)
                 result['session']['enforcement'] = 'app-reported'
@@ -266,7 +294,7 @@ class Store:
 
     def accounts(self):
         with self.db() as db:
-            return [self.view(r) for r in db.execute('SELECT a.*,COALESCE(s.seen,x.seen) AS last_seen FROM accounts a LEFT JOIN sessions s ON s.account=a.id LEFT JOIN xray_sessions x ON x.account=a.id WHERE a.deleted=0 ORDER BY a.created DESC')]
+            return [self.view(r) for r in db.execute('SELECT a.*,COALESCE(t.seen,s.seen,x.seen) AS last_seen, (SELECT COUNT(*) FROM trial_devices d WHERE d.account=a.id) AS device_count FROM accounts a LEFT JOIN sessions s ON s.account=a.id LEFT JOIN xray_sessions x ON x.account=a.id LEFT JOIN (SELECT account,MAX(seen) AS seen FROM trial_xray_sessions GROUP BY account) t ON t.account=a.id WHERE a.deleted=0 ORDER BY a.created DESC')]
 
     @staticmethod
     def validate_key(key):
@@ -310,28 +338,59 @@ class Store:
             row = db.execute('SELECT * FROM accounts WHERE code_hash=?', (digest(code.strip().upper()),)).fetchone()
             if not row or row['deleted'] or row['suspended']:
                 raise Fault('Code is invalid or disabled', 403)
-            if row['key'] and row['key'] != key:
-                raise Fault('Code is already linked to another device; contact support', 409)
-            if row['activated'] is None:
-                db.execute('UPDATE accounts SET activated=?,expires=?,key=? WHERE id=?',
-                           (self.now(), self.now() + row['duration'], key, row['id']))
-                self.audit(db, 'activated', row['id'])
+            if row['kind'] == 'trial':
+                # The original trial clock and quota belong to the one account,
+                # not to each device. Re-activation must not restart the clock.
+                if row['activated'] is not None:
+                    self.require_active(row)
+                registered = db.execute('SELECT 1 FROM trial_devices WHERE account=? AND device_key=?', (row['id'], key)).fetchone()
+                if not registered:
+                    count = db.execute('SELECT COUNT(*) FROM trial_devices WHERE account=?', (row['id'],)).fetchone()[0]
+                    if count >= 100:
+                        raise Fault('Trial device limit reached (100 devices)', 409)
+                    db.execute('INSERT INTO trial_devices(account,device_key) VALUES(?,?)', (row['id'], key))
+                if row['activated'] is None:
+                    db.execute('UPDATE accounts SET activated=?,expires=?,key=? WHERE id=?',
+                               (self.now(), self.now() + row['duration'], key, row['id']))
+                    self.audit(db, 'activated', row['id'])
+                token = secrets.token_urlsafe(32)
+                db.execute('DELETE FROM trial_tokens WHERE account=? AND device_key=?', (row['id'], key))
+                db.execute('INSERT INTO trial_tokens(hash,account,device_key,expires) VALUES(?,?,?,?)',
+                           (digest(token), row['id'], key, self.now() + 90 * 86400))
+                if not registered:
+                    self.audit(db, 'trial_device_added', row['id'])
             else:
-                self.require_active(row)
-                if row['key'] is None:
-                    db.execute('UPDATE accounts SET key=? WHERE id=?', (key, row['id']))
-            token = secrets.token_urlsafe(32)
-            db.execute('DELETE FROM tokens WHERE account=?', (row['id'],))
-            db.execute('INSERT INTO tokens VALUES(?,?,?)', (digest(token), row['id'], self.now() + 90 * 86400))
+                # Paid access stays strictly bound to one device and one token.
+                if row['key'] and row['key'] != key:
+                    raise Fault('Code is already linked to another device; contact support', 409)
+                if row['activated'] is None:
+                    db.execute('UPDATE accounts SET activated=?,expires=?,key=? WHERE id=?',
+                               (self.now(), self.now() + row['duration'], key, row['id']))
+                    self.audit(db, 'activated', row['id'])
+                else:
+                    self.require_active(row)
+                    if row['key'] is None:
+                        db.execute('UPDATE accounts SET key=? WHERE id=?', (key, row['id']))
+                token = secrets.token_urlsafe(32)
+                db.execute('DELETE FROM tokens WHERE account=?', (row['id'],))
+                db.execute('INSERT INTO tokens VALUES(?,?,?)', (digest(token), row['id'], self.now() + 90 * 86400))
             account_id = row['id']
         return {'token': token, 'account': self.account(account_id)}
 
     def client_auth(self, token):
         with self.db() as db:
+            row = db.execute('SELECT a.*,t.device_key AS auth_device_key FROM trial_tokens t JOIN accounts a ON a.id=t.account JOIN trial_devices d ON d.account=t.account AND d.device_key=t.device_key WHERE t.hash=? AND t.expires>?', (digest(token), self.now())).fetchone()
+            if row:
+                if row['deleted']:
+                    raise Fault('Activate your access code', 401)
+                return dict(row)
             row = db.execute('SELECT a.* FROM tokens t JOIN accounts a ON a.id=t.account WHERE t.hash=? AND t.expires>?', (digest(token), self.now())).fetchone()
             if not row or row['deleted']:
                 raise Fault('Activate your access code', 401)
-            return dict(row)
+            # The single-device paid token keeps its original verification key.
+            result = dict(row)
+            result['auth_device_key'] = row['key']
+            return result
 
     def require_active(self, row):
         if row['deleted'] or row['suspended']:
@@ -348,7 +407,7 @@ class Store:
             db.execute('BEGIN IMMEDIATE')
             row = db.execute('SELECT * FROM accounts WHERE id=?', (account['id'],)).fetchone()
             self.require_active(row)
-            self.proof(db, data, row['key'], 'connect')
+            self.proof(db, data, account['auth_device_key'], 'connect')
             profile = db.execute('SELECT * FROM profiles WHERE id=? AND enabled=1', (profile_id,)).fetchone()
             if not profile or profile_id not in json.loads(row['profiles']):
                 raise Fault('This connection profile is unavailable', 403)
@@ -465,6 +524,9 @@ class Store:
                 db.execute('UPDATE accounts SET key=NULL WHERE id=?', (account_id,))
                 for table in ['tokens', 'tickets', 'sessions']:
                     db.execute(f'DELETE FROM {table} WHERE account=?', (account_id,))
+                if row['kind'] == 'trial':
+                    for table in ['trial_tokens', 'trial_xray_sessions', 'trial_devices']:
+                        db.execute(f'DELETE FROM {table} WHERE account=?', (account_id,))
             self.audit(db, 'account_updated', account_id, ','.join(sorted(data)))
         return self.account(account_id)
 
@@ -472,7 +534,7 @@ class Store:
         with self.db() as db:
             if db.execute('UPDATE accounts SET deleted=1,suspended=1,label=? WHERE id=? AND deleted=0', ('Deleted account', account_id)).rowcount != 1:
                 raise Fault('Account not found', 404)
-            for table in ['tokens', 'tickets', 'sessions']:
+            for table in ['tokens', 'tickets', 'sessions', 'trial_tokens', 'trial_xray_sessions', 'trial_devices']:
                 db.execute(f'DELETE FROM {table} WHERE account=?', (account_id,))
             self.audit(db, 'account_deleted', account_id)
 
@@ -489,7 +551,7 @@ class Store:
             if startup:
                 db.execute('DELETE FROM sessions')
                 db.execute('DELETE FROM tickets')
-            for table in ['tokens', 'tickets', 'challenges', 'admin_sessions']:
+            for table in ['tokens', 'trial_tokens', 'tickets', 'challenges', 'admin_sessions']:
                 db.execute(f'DELETE FROM {table} WHERE expires<=?', (self.now(),))
             db.execute('DELETE FROM usage WHERE at<?', (self.now() - 31 * 86400,))
 
