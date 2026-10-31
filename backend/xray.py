@@ -196,25 +196,35 @@ def connect(store, token, data):
         db.execute('BEGIN IMMEDIATE')
         row = db.execute('SELECT * FROM accounts WHERE id=?', (account['id'],)).fetchone()
         store.require_active(row)
-        store.proof(db, data, row['key'], 'connect')
+        device_key = account['auth_device_key']
+        store.proof(db, data, device_key, 'connect')
         p = db.execute('SELECT * FROM profiles WHERE id=? AND enabled=1', (data.get('profile_id', ''),)).fetchone()
         if not p or p['id'] not in json.loads(row['profiles']):
             raise Fault('This connection profile is unavailable', 403)
         x = db.execute('SELECT config,insecure FROM xray_profiles WHERE profile=?', (p['id'],)).fetchone()
         if not x:
             raise Fault('Imported profile not found', 404)
-        # Rebuild stored imports too: profiles saved before DNS normalization must
-        # receive the same routing protections without an owner reimport.
         config = normalize(json.loads(x['config']), allow_insecure=bool(x['insecure']))[0]
         active = db.execute('SELECT 1 FROM sessions WHERE account=? AND seen>?', (row['id'], store.now()-30)).fetchone()
-        active_x = db.execute('SELECT 1 FROM xray_sessions WHERE account=? AND seen>?', (row['id'], store.now()-30)).fetchone()
+        if row['kind'] == 'trial':
+            active_x = db.execute('SELECT 1 FROM trial_xray_sessions WHERE account=? AND device_key=? AND seen>?',
+                                  (row['id'], device_key, store.now()-30)).fetchone()
+        else:
+            active_x = db.execute('SELECT 1 FROM xray_sessions WHERE account=? AND seen>?',
+                                  (row['id'], store.now()-30)).fetchone()
         if active or active_x:
-            raise Fault('Account already connected; disconnect first', 409)
-        db.execute('DELETE FROM tickets WHERE account=?', (row['id'],))
+            raise Fault('Device already connected; disconnect first', 409)
         lease = secrets.token_urlsafe(32)
-        db.execute('DELETE FROM xray_sessions WHERE account=?', (row['id'],))
-        db.execute('INSERT INTO xray_sessions(account,profile,version,lease,seen,up,down) VALUES(?,?,?,?,?,0,0)',
-            (row['id'], p['id'], p['version'], digest(lease), store.now()))
+        if row['kind'] == 'trial':
+            # Other trial devices retain their own live sessions and leases.
+            db.execute('DELETE FROM trial_xray_sessions WHERE account=? AND device_key=?', (row['id'], device_key))
+            db.execute('INSERT INTO trial_xray_sessions(account,device_key,profile,version,lease,seen,up,down) VALUES(?,?,?,?,?,?,0,0)',
+                       (row['id'], device_key, p['id'], p['version'], digest(lease), store.now()))
+        else:
+            db.execute('DELETE FROM tickets WHERE account=?', (row['id'],))
+            db.execute('DELETE FROM xray_sessions WHERE account=?', (row['id'],))
+            db.execute('INSERT INTO xray_sessions(account,profile,version,lease,seen,up,down) VALUES(?,?,?,?,?,0,0)',
+                       (row['id'], p['id'], p['version'], digest(lease), store.now()))
         profile = metadata(db, [dict(p)])[0]
     return {'engine': 'xray', 'profile': profile, 'config': config, 'lease': lease, 'lease_seconds': 30}
 
@@ -231,7 +241,12 @@ def heartbeat(store, token, data):
         db.execute('BEGIN IMMEDIATE')
         row = db.execute('SELECT * FROM accounts WHERE id=?', (account['id'],)).fetchone()
         store.require_active(row)
-        session = db.execute('SELECT * FROM xray_sessions WHERE account=? AND lease=?', (row['id'], digest(lease))).fetchone()
+        if row['kind'] == 'trial':
+            session = db.execute('SELECT * FROM trial_xray_sessions WHERE account=? AND device_key=? AND lease=?',
+                                 (row['id'], account['auth_device_key'], digest(lease))).fetchone()
+        else:
+            session = db.execute('SELECT * FROM xray_sessions WHERE account=? AND lease=?',
+                                 (row['id'], digest(lease))).fetchone()
         if not session or session['seen'] <= store.now()-30:
             raise Fault('Connection lease expired; reconnect', 403)
         p = db.execute('SELECT * FROM profiles WHERE id=?', (session['profile'],)).fetchone()
@@ -240,11 +255,26 @@ def heartbeat(store, token, data):
         if up < session['up'] or down < session['down']:
             raise Fault('Byte counters must not decrease')
         delta_up, delta_down = up-session['up'], down-session['down']
-        db.execute('UPDATE accounts SET used=used+? WHERE id=?', (delta_up+delta_down, row['id']))
-        db.execute('UPDATE xray_sessions SET up=?,down=?,seen=? WHERE account=?', (up, down, store.now(), row['id']))
-        db.execute('INSERT INTO usage(account,at,up,down) VALUES(?,?,?,?) ON CONFLICT(account,at) DO UPDATE SET up=up+excluded.up,down=down+excluded.down',
-            (row['id'], store.now()//60*60, delta_up, delta_down))
-        allowed = row['used']+delta_up+delta_down < row['quota']
+        if row['kind'] == 'trial':
+            # Serialized with the account lock: a shared quota cannot be credited
+            # more than once, even when many devices report usage concurrently.
+            charge = min(delta_up + delta_down, row['quota'] - row['used'])
+            charge_up = min(delta_up, charge)
+            charge_down = charge - charge_up
+            db.execute('UPDATE accounts SET used=used+? WHERE id=?', (charge, row['id']))
+            db.execute('UPDATE trial_xray_sessions SET up=?,down=?,seen=? WHERE account=? AND device_key=?',
+                       (up, down, store.now(), row['id'], account['auth_device_key']))
+            if charge:
+                db.execute('INSERT INTO usage(account,at,up,down) VALUES(?,?,?,?) ON CONFLICT(account,at) DO UPDATE SET up=up+excluded.up,down=down+excluded.down',
+                           (row['id'], store.now()//60*60, charge_up, charge_down))
+            allowed = row['used'] + charge < row['quota'] and charge == delta_up + delta_down
+        else:
+            # Paid accounting is unchanged.
+            db.execute('UPDATE accounts SET used=used+? WHERE id=?', (delta_up+delta_down, row['id']))
+            db.execute('UPDATE xray_sessions SET up=?,down=?,seen=? WHERE account=?', (up, down, store.now(), row['id']))
+            db.execute('INSERT INTO usage(account,at,up,down) VALUES(?,?,?,?) ON CONFLICT(account,at) DO UPDATE SET up=up+excluded.up,down=down+excluded.down',
+                       (row['id'], store.now()//60*60, delta_up, delta_down))
+            allowed = row['used']+delta_up+delta_down < row['quota']
     if not allowed:
         raise Fault('Data allowance exhausted', 403)
     return {'ok': True, 'lease_seconds': 30, 'enforcement': 'app-reported'}
@@ -256,7 +286,11 @@ def disconnect(store, token, data):
     if not isinstance(lease, str):
         raise Fault('Connection lease required')
     with store.db() as db:
-        db.execute('DELETE FROM xray_sessions WHERE account=? AND lease=?', (account['id'], digest(lease)))
+        if account['kind'] == 'trial':
+            db.execute('DELETE FROM trial_xray_sessions WHERE account=? AND device_key=? AND lease=?',
+                       (account['id'], account['auth_device_key'], digest(lease)))
+        else:
+            db.execute('DELETE FROM xray_sessions WHERE account=? AND lease=?', (account['id'], digest(lease)))
     return {'ok': True}
 
 
