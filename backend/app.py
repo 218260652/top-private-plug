@@ -182,9 +182,14 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     async def disconnect(request):
         account = store.client_auth(token(request))
         with store.db() as db:
-            db.execute('DELETE FROM sessions WHERE account=?', (account['id'],))
-            db.execute('DELETE FROM tickets WHERE account=?', (account['id'],))
-            db.execute('DELETE FROM xray_sessions WHERE account=?', (account['id'],))
+            if account['kind'] == 'trial':
+                # Disconnect only this trial device, not its 99 possible peers.
+                db.execute('DELETE FROM trial_xray_sessions WHERE account=? AND device_key=?',
+                           (account['id'], account['auth_device_key']))
+            else:
+                db.execute('DELETE FROM sessions WHERE account=?', (account['id'],))
+                db.execute('DELETE FROM tickets WHERE account=?', (account['id'],))
+                db.execute('DELETE FROM xray_sessions WHERE account=?', (account['id'],))
         return web.json_response({'ok': True})
 
     async def index(request):
