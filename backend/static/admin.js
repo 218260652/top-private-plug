@@ -57,6 +57,7 @@ async function refresh() {
     if (!Array.isArray(result.accounts) || !Array.isArray(result.profiles) || !Array.isArray(result.audit))
       throw Error('Server returned incomplete profile data.');
     state = result; $('login-panel').hidden = true; $('workspace').hidden = false;
+    if (!$('retry-connect').hidden) $('notice').hidden = true;
     $('retry-connect').hidden = true; render();
   })().finally(() => {refreshInFlight = null;});
   return refreshInFlight;
@@ -128,8 +129,13 @@ function checkImport(value) {
   const outbound = tunnels[0];
   if (outbound.protocol === 'vless') {
     const server = outbound.settings?.vnext?.[0];
-    if (!server?.address || !Number.isInteger(server.port) || !server.users?.[0]?.id)
-      throw Error('VLESS requires a server hostname, port and UUID. Replace example placeholders.');
+    const uuid=server?.users?.[0]?.id;
+    if (!server?.address || server.address.startsWith('REPLACE_') || !Number.isInteger(server.port) ||
+        typeof uuid !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid))
+      throw Error('VLESS requires a real server hostname, numeric port and valid UUID. Replace the example values.');
+    const serverName=outbound.streamSettings?.tlsSettings?.serverName;
+    if (typeof serverName !== 'string' || !serverName || serverName.startsWith('REPLACE_'))
+      throw Error('Replace the example TLS certificate hostname with the real server name.');
   }
   if (!['tcp','raw',undefined].includes(outbound.streamSettings?.network) || outbound.streamSettings?.security !== 'tls')
     throw Error('Currently supported transport: TCP with TLS.');
