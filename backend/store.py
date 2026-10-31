@@ -260,7 +260,7 @@ class Store:
         r = dict(row)
         for k in ['key', 'code_hash', 'profiles', 'slot']:
             r.pop(k, None)
-        r['device_limit'] = 100 if row['kind'] == 'trial' else 1
+        r['device_limit'] = 50 if row['kind'] == 'trial' else 1
         r['device_count'] = int(r.get('device_count', 0)) if row['kind'] == 'trial' else int(row['key'] is not None)
         r['profile_ids'] = json.loads(row['profiles'])
         r['remaining_bytes'] = max(0, row['quota'] - row['used'])
