@@ -1,13 +1,7 @@
 plugins { id 'com.android.application' }
 android {
-    namespace 'za.co.topprivateplug'
-    compileSdk 35
-    defaultConfig { applicationId 'za.co.topprivateplug'; minSdk 26; targetSdk 35; versionCode 10; versionName '0.1.9-pilot' }
-    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
-    buildTypes { release { minifyEnabled false } }
+ namespace 'za.co.hostlab'
+ compileSdk 35
+ defaultConfig { applicationId 'za.co.hostlab'; minSdk 26; targetSdk 35; versionCode 300; versionName '3.0.0' }
+ compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
-
-
-dependencies { implementation files('libs/libv2ray.aar') }
-
-

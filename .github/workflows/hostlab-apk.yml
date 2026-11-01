@@ -1,0 +1,56 @@
+name: Host Lab standalone APK
+on:
+  push:
+    branches: [hostlab-standalone-apk-20261101]
+  workflow_dispatch:
+permissions:
+  contents: read
+  statuses: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Mark build started
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({owner: context.repo.owner, repo: context.repo.repo, sha: context.sha, state: 'pending', context: 'hostlab-apk/build', target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`, description: 'Building standalone Host Lab APK'});
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build APK and run Android lint
+        working-directory: android
+        run: gradle --no-daemon assembleDebug lintDebug
+      - name: Verify APK identity and signature
+        run: |
+          mkdir -p deliverables
+          cp android/app/build/outputs/apk/debug/app-debug.apk deliverables/HostLab-3.0.0.apk
+          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs deliverables/HostLab-3.0.0.apk > deliverables/signature.txt
+          "$BUILD_TOOLS/aapt" dump badging deliverables/HostLab-3.0.0.apk > deliverables/package-info.txt
+          grep "name='za.co.hostlab'" deliverables/package-info.txt
+          grep "versionName='3.0.0'" deliverables/package-info.txt
+          test -z "$(grep -i 'chatgpt' android/app/src/main/java/za/co/hostlab/MainActivity.java || true)"
+          sha256sum deliverables/HostLab-3.0.0.apk > deliverables/SHA256SUMS.txt
+          cp android/app/build/reports/lint-results-debug.html deliverables/lint-report.html
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HostLab-3.0.0-APK
+          path: deliverables/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Mark build result
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          RESULT: ${{ job.status }}
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({owner: context.repo.owner, repo: context.repo.repo, sha: context.sha, state: process.env.RESULT === 'success' ? 'success' : 'failure', context: 'hostlab-apk/build', target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`, description: process.env.RESULT === 'success' ? 'APK built; lint and signature verified' : 'Build failed; inspect workflow logs'});
