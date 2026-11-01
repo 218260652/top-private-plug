@@ -70,8 +70,9 @@ def normalize(raw, allow_insecure=False):
                 raise Fault('Trojan password is required')
             settings = {'servers': [{'address': address, 'port': server_port, 'password': password, 'level': 0}]}
         stream = original['streamSettings']
-        if stream.get('network', 'tcp') not in ('tcp', 'raw') or stream.get('security') != 'tls':
-            raise Fault('This importer supports VLESS or Trojan over TCP with TLS')
+        network = stream.get('network', 'tcp')
+        if network not in ('tcp', 'raw', 'ws') or stream.get('security') != 'tls':
+            raise Fault('This importer supports VLESS or Trojan over TCP or WebSocket with TLS')
         tls = stream.get('tlsSettings', {})
         sni = host(tls.get('serverName') or address)
         insecure = tls.get('allowInsecure', False)
@@ -82,8 +83,31 @@ def normalize(raw, allow_insecure=False):
         # Keep the historical statistics tag for installed 0.1.5 clients.
         # The tag is an internal identifier, not the tunnel protocol.
         outbound = {'tag': 'trojan', 'protocol': protocol, 'settings': settings,
-            'streamSettings': {'network': 'tcp', 'security': 'tls', 'tlsSettings': {
+            'streamSettings': {'network': 'ws' if network == 'ws' else 'tcp', 'security': 'tls', 'tlsSettings': {
                 'serverName': sni, 'allowInsecure': insecure, 'minVersion': '1.2'}}}
+        if network == 'ws':
+            ws = stream.get('wsSettings', {})
+            if not isinstance(ws, dict):
+                raise Fault('Invalid WebSocket settings')
+            path = ws.get('path', '/')
+            if not isinstance(path, str) or not path.startswith('/') or len(path) > 4096 or any(ord(c) < 32 or ord(c) == 127 for c in path):
+                raise Fault('WebSocket path must start with / and contain no control characters')
+            headers = ws.get('headers', {})
+            if not isinstance(headers, dict) or len(headers) > 20:
+                raise Fault('Invalid WebSocket headers')
+            for key, value in headers.items():
+                if not isinstance(key, str) or not isinstance(value, str) or not re.fullmatch(r'[!#$%&\'*+.^_`|~0-9A-Za-z-]+', key) or len(value) > 1024 or any(ord(c) < 32 or ord(c) == 127 for c in value):
+                    raise Fault('Invalid WebSocket header')
+            headers = copy.deepcopy(headers)
+            ws_host = ws.get('host')
+            if ws_host is not None:
+                if not isinstance(ws_host, str) or not ws_host or len(ws_host) > 1024 or any(ord(c) < 33 or ord(c) == 127 for c in ws_host):
+                    raise Fault('Invalid WebSocket Host')
+                if any(key.lower() == 'host' and value != ws_host for key, value in headers.items()):
+                    raise Fault('Conflicting WebSocket Host values')
+                headers = {key: value for key, value in headers.items() if key.lower() != 'host'}
+                headers['Host'] = ws_host
+            outbound['streamSettings']['wsSettings'] = {'path': path, 'headers': headers}
         fingerprint = tls.get('fingerprint')
         if fingerprint is not None:
             if fingerprint not in ('chrome', 'firefox', 'safari', 'edge', 'ios', 'android', 'random', 'randomized'):
@@ -304,5 +328,6 @@ def toggle(store, profile_id, data):
         db.execute('UPDATE profiles SET enabled=?,version=version+1 WHERE id=?', (int(data['enabled']), profile_id))
         store.audit(db, 'xray_profile_enabled' if data['enabled'] else 'xray_profile_disabled', profile_id)
     return store.get_profile(profile_id)
+
 
 

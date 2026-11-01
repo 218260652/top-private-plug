@@ -137,8 +137,13 @@ function checkImport(value) {
     if (typeof serverName !== 'string' || !serverName || serverName.startsWith('REPLACE_'))
       throw Error('Replace the example TLS certificate hostname with the real server name.');
   }
-  if (!['tcp','raw',undefined].includes(outbound.streamSettings?.network) || outbound.streamSettings?.security !== 'tls')
-    throw Error('Currently supported transport: TCP with TLS.');
+  if (!['tcp','raw','ws',undefined].includes(outbound.streamSettings?.network) || outbound.streamSettings?.security !== 'tls')
+    throw Error('Currently supported transports: TCP or WebSocket with TLS.');
+  if (outbound.streamSettings.network === 'ws') {
+    const ws=outbound.streamSettings.wsSettings ?? {}, path=ws.path ?? '/';
+    if (typeof path !== 'string' || !path.startsWith('/') || path.length > 4096 || /[\x00-\x1f\x7f]/.test(path))
+      throw Error('WebSocket path must start with / and contain no control characters.');
+  }
   return outbound.protocol.toUpperCase();
 }
 $('vless-template').onclick = () => {
@@ -162,4 +167,5 @@ $('xray-form').addEventListener('submit',e=>{e.preventDefault();const f=e.target
   notice(protocol+' profile saved. Assign to an access account; live connectivity still needs testing.');
 });});
 $('xray-reset').onclick=()=>{$('xray-form').reset();$('xray-form').elements.id.value='';$('xray-title').textContent='Import connection JSON';$('import-feedback').textContent='';};
+
 
