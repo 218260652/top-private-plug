@@ -34,7 +34,12 @@ jobs:
           java -cp /tmp/hostlab-tests EndpointRulesTest
       - name: Build APK and run Android lint
         working-directory: android
-        run: gradle --no-daemon assembleDebug lintDebug
+        run: |
+          if ! gradle --no-daemon assembleDebug lintDebug; then
+            REPORT=$(find app/build -name lint-results-debug.txt -print -quit)
+            if [ -n "$REPORT" ]; then cat "$REPORT"; fi
+            exit 1
+          fi
       - name: Verify APK identity and signature
         run: |
           mkdir -p deliverables
