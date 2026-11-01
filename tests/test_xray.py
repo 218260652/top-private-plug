@@ -71,8 +71,48 @@ class XrayTests(unittest.TestCase):
             with self.assertRaises(Fault): xray.normalize(raw, True)
         raw = self.vless_config(); raw['outbounds'].append(config()['outbounds'][0])
         with self.assertRaises(Fault): xray.normalize(raw, True)
-        raw = self.vless_config(); raw['outbounds'][0]['streamSettings']['network'] = 'ws'
+        raw = self.vless_config(); raw['outbounds'][0]['streamSettings']['network'] = 'grpc'
         with self.assertRaises(Fault): xray.normalize(raw, True)
+
+    def test_websocket_survives_save_connect_and_repeated_normalization(self):
+        raw = self.vless_config()
+        tunnel = raw['outbounds'][0]
+        tunnel.pop('proxySettings')
+        raw['outbounds'] = [tunnel]
+        tunnel['streamSettings'].update(network='ws', wsSettings={
+            'path': '/baron', 'headers': {'Host': 'ws.example.com'}})
+        tunnel['streamSettings']['tlsSettings']['allowInsecure'] = False
+        original = json.loads(json.dumps(raw))
+        xray.save(self.store, dict(self.data, config=raw), self.profile['id'])
+        connected = self.connect()['config']
+        stream = connected['outbounds'][0]['streamSettings']
+        self.assertEqual(stream['network'], 'ws')
+        self.assertEqual(stream['wsSettings'], tunnel['streamSettings']['wsSettings'])
+        self.assertEqual(stream['tlsSettings']['serverName'], 'vpn.example.com')
+        self.assertEqual(stream['tlsSettings']['fingerprint'], 'chrome')
+        self.assertFalse(stream['tlsSettings']['allowInsecure'])
+        self.assertEqual(xray.normalize(connected)[0], connected)
+        self.assertEqual(raw, original)
+
+    def test_websocket_host_field_and_http_upstream_are_preserved(self):
+        raw = self.vless_config()
+        raw['outbounds'][0]['streamSettings'].update(network='ws', wsSettings={
+            'path': '/socket?ed=2048', 'host': 'ws.example.com'})
+        normalized = xray.normalize(raw, True)[0]
+        stream = normalized['outbounds'][0]['streamSettings']
+        self.assertEqual(stream['wsSettings']['headers'], {'Host': 'ws.example.com'})
+        self.assertEqual(stream['sockopt']['dialerProxy'], 'http-upstream')
+        self.assertEqual(xray.normalize(normalized, True)[0], normalized)
+
+    def test_websocket_rejects_malformed_path_headers_and_host(self):
+        for ws in [None, [], {'path': 'baron'}, {'path': '/a\r\nb'}, {'path': 123},
+                   {'headers': []}, {'headers': {'Host': 'good\r\nInjected: yes'}},
+                   {'headers': {'Host': 123}}, {'host': 'bad\nHost'},
+                   {'host': 'one.example', 'headers': {'Host': 'two.example'}}]:
+            with self.subTest(ws=ws):
+                raw = self.vless_config()
+                raw['outbounds'][0]['streamSettings'].update(network='ws', wsSettings=ws)
+                with self.assertRaises(Fault): xray.normalize(raw, True)
 
     def test_doh_rejects_local_mode_and_arbitrary_urls(self):
         for value in ['https+local://dns.google/dns-query', 'https://evil.example/dns-query',
@@ -273,4 +313,5 @@ class XrayApiTests(unittest.IsolatedAsyncioTestCase):
         headers['X-TPP-Features']='legacy-tls-test-v1'
         r=await self.client.post('/v1/connect',headers=headers,json=data);self.assertEqual(r.status,200)
         self.assertTrue((await r.json())['config']['outbounds'][0]['streamSettings']['tlsSettings']['allowInsecure'])
+
 
