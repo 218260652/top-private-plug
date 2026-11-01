@@ -6,6 +6,8 @@ public class EndpointRulesTest {
   for(String s:rejected)if(EndpointRules.isPublic(InetAddress.getByName(s)))throw new AssertionError("Accepted special-use address: "+s);
   String[] accepted={"1.1.1.1","8.8.8.8","198.51.99.1","203.0.112.1","2001:4860:4860::8888","2606:4700:4700::1111"};
   for(String s:accepted)if(!EndpointRules.isPublic(InetAddress.getByName(s)))throw new AssertionError("Rejected public address: "+s);
-  System.out.println("20 address-boundary checks passed.");
+  for(String v:new String[]{"/","/socket?ed=2048","/a%20b"})if(!EndpointRules.validPath(v))throw new AssertionError("Valid path rejected");
+  for(String v:new String[]{"", "//evil.example", "missing-slash", "/a\r\nInjected: value", "/a\n\n", "/a#frag", "/a\\b", "/a\u0000b", "/a b"})if(EndpointRules.validPath(v))throw new AssertionError("Unsafe path accepted");
+  System.out.println("32 public-address and request-path checks passed.");
  }
 }

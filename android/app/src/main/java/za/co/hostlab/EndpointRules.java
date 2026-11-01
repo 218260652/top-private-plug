@@ -3,6 +3,7 @@ import java.net.InetAddress;
 /** Public endpoint filter; no DNS calls. */
 public final class EndpointRules {
  private EndpointRules(){}
+ public static boolean validPath(String path){return path!=null&&path.length()<=1024&&path.startsWith("/")&&!path.startsWith("//")&&!path.chars().anyMatch(ch->ch<=32||ch>=127||ch==35||ch==92);}
  public static boolean isPublic(InetAddress address){
   if(address.isAnyLocalAddress()||address.isLoopbackAddress()||address.isLinkLocalAddress()||address.isSiteLocalAddress()||address.isMulticastAddress())return false;
   byte[] b=address.getAddress();
