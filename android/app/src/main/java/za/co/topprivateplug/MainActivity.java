@@ -18,7 +18,7 @@ import java.util.concurrent.*;
 
 public final class MainActivity extends Activity {
     int BG=0xff000000,PANEL=0xff10151d,LINE=0xff263442,TEXT=0xfff5f8fc,MUTED=0xffa9bacb;
-    final int CYAN=0xff00cfff,MINT=0xff00e5a2,YELLOW=0xffffcb05,ORANGE=0xffea5b0c,TELKOM=0xff91e200;
+    final int CYAN=0xff00cfff,MINT=0xff00e5a2,YELLOW=0xffffcb05,ORANGE=0xffea5b0c,TELKOM=0xff008ed6;
     LinearLayout root,content,navigation; ScrollView scroll; Vault vault; Api api;
     JSONObject account; JSONArray profiles=new JSONArray(),points=new JSONArray();
     String tab="Home",carrier="MTN",selectedProfile="",lastError="",renderedTunnelState="",renderedTunnelDetail="",renderedTab="";
@@ -258,7 +258,7 @@ if(carrierProfiles().length()==0&&profiles.length()>0)carrier=profiles.optJSONOb
         if("Disconnected".equals(TunnelService.state)&&!NetworkState.validated(this)) {
             lastError=hasSavedProfile()?"Mobile internet is unavailable. Tap Connect to verify through your saved profile.":"No saved connection settings for "+carrier+". Use Wi-Fi once and tap Refresh connection settings.";render();return;
         }
-        final String token=vault.token(), endpoint=vault.endpoint(); runNetwork(()->{JSONObject a;try{a=api.request("/v1/status",null,true);}catch(Exception e){handler.post(()->{if(token.equals(vault.token())&&endpoint.equals(vault.endpoint()))accountSyncedAt=0;});throw e;}handler.post(()->{if(token.equals(vault.token())&&endpoint.equals(vault.endpoint())){account=a;accountSyncedAt=SystemClock.elapsedRealtime();render();}});JSONArray p=api.request("/v1/profiles",null,true).getJSONArray("profiles");if(token.equals(vault.token())&&endpoint.equals(vault.endpoint())){vault.catalog(p);if("Disconnected".equals(TunnelService.state))api.prepareProfiles(p,replaceSaved);}JSONArray history=tab.equals("Usage")?fetchHistory():null;handler.post(()->{if(!token.equals(vault.token())||!endpoint.equals(vault.endpoint()))return;updates.accountAlerts(a);profiles=p;if(history!=null)points=history;chooseCarrier();render();});},true); }
+        final String token=vault.token(), endpoint=vault.endpoint(); runNetwork(()->{JSONObject a;try{a=api.request("/v1/status",null,true);}catch(Exception e){handler.post(()->{if(token.equals(vault.token())&&endpoint.equals(vault.endpoint()))accountSyncedAt=0;});throw e;}handler.post(()->{if(token.equals(vault.token())&&endpoint.equals(vault.endpoint())){account=a;accountSyncedAt=SystemClock.elapsedRealtime();}});JSONArray p=api.request("/v1/profiles",null,true).getJSONArray("profiles");if(token.equals(vault.token())&&endpoint.equals(vault.endpoint())){vault.catalog(p);if("Disconnected".equals(TunnelService.state))api.prepareProfiles(p,replaceSaved);}JSONArray history=tab.equals("Usage")?fetchHistory():null;handler.post(()->{if(!token.equals(vault.token())||!endpoint.equals(vault.endpoint()))return;updates.accountAlerts(a);profiles=p;if(history!=null)points=history;chooseCarrier();});},true); }
     void loadGraph() { if(vault.token().isEmpty())return;runNetwork(()->{JSONArray data=fetchHistory();handler.post(()->{points=data;render();});}); }
     void message(String value) { if(!isFinishing())new AlertDialog.Builder(this).setMessage(value).setPositiveButton("OK",null).show(); }
     String bytes(long value) { if(value>=1e9)return String.format(Locale.US,"%.2f GB",value/1e9);if(value>=1e6)return String.format(Locale.US,"%.1f MB",value/1e6);if(value>=1000)return String.format(Locale.US,"%.1f KB",value/1000.0);return value+" B"; }
