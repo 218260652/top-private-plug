@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock
 
 from provision import (CAMPAIGN_SECONDS, TOKEN_SECONDS, NAME, SHAPE, Oracle,
-                       Stop, run_once)
+                       Stop, run_once, watch_worker)
 
 CONFIG = {"tenancy": "test-tenancy", "region": "ap-singapore-1"}
 KEY = "ssh-ed25519 AAAATEST test"
@@ -15,6 +15,10 @@ class Store:
     def __init__(self):
         self.state = None
         self.writes = 0
+        self.enabled = True
+
+    def workflow_enabled(self):
+        return self.enabled
 
     def load(self):
         return copy.deepcopy(self.state)
@@ -173,6 +177,68 @@ class ProvisionTests(unittest.TestCase):
         with self.assertRaises(Exception):
             self.run_at(500)
         self.assertEqual(len(self.cloud.calls), 1)
+
+
+class WorkerTests(unittest.TestCase):
+    def setUp(self):
+        self.cloud, self.store = Cloud(), Store()
+        self.now, self.events, self.sleeps = 100, [], []
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+    def watch(self, seconds=1000, sleeper=None):
+        return watch_worker(self.cloud, self.store, CONFIG, KEY, max_seconds=seconds,
+                            clock=lambda: self.now, sleep=sleeper or self.sleep,
+                            emit=self.events.append, progress=Mock())
+
+    def test_capacity_retries_automatically_then_only_monitors_acceptance(self):
+        original = self.cloud.launch
+
+        def launch(body, token):
+            if not self.cloud.calls:
+                self.cloud.error = service_error(500, "Out of host capacity.")
+            else:
+                self.cloud.error = None
+            return original(body, token)
+
+        self.cloud.launch = launch
+        result = self.watch()
+        self.assertEqual(result["status"], "RUNNING")
+        self.assertEqual(len(self.cloud.calls), 2)
+        self.assertEqual(self.cloud.calls[0], self.cloud.calls[1])
+        self.assertGreaterEqual(sum(self.sleeps), 360)
+        self.assertTrue(all(s <= 60 for s in self.sleeps))
+
+    def test_worker_window_bounds_runtime(self):
+        self.cloud.error = service_error(500, "Out of host capacity.")
+        self.assertEqual(self.watch(650)["status"], "WATCH_WINDOW_ENDED")
+        self.assertEqual(len(self.cloud.calls), 3)
+        self.assertEqual(sum(self.sleeps), 650)
+
+    def test_disabling_workflow_stops_during_cooldown(self):
+        self.cloud.error = service_error(429, "throttled")
+
+        def disable(seconds):
+            self.sleep(seconds)
+            self.store.enabled = False
+
+        self.assertEqual(self.watch(sleeper=disable)["status"], "PAUSED")
+        self.assertEqual(len(self.cloud.calls), 1)
+
+    def test_unknown_launch_outcome_stops_worker(self):
+        self.cloud.error = TimeoutError()
+        with self.assertRaises(Stop):
+            self.watch()
+        self.assertEqual(len(self.cloud.calls), 1)
+        self.assertEqual(self.sleeps, [])
+
+    def test_existing_instance_never_launches_in_worker(self):
+        self.cloud.instances = [{"name": NAME, "id": "existing", "state": "RUNNING",
+                                 "shape": SHAPE}]
+        self.assertEqual(self.watch()["status"], "RUNNING")
+        self.assertEqual(self.cloud.calls, [])
 
 
 class SDKContractTests(unittest.TestCase):
