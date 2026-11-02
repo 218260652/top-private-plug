@@ -28,3 +28,4 @@ final class DeviceKey {
         return Base64.encodeToString(signature.sign(), Base64.NO_WRAP);
     }
 }
+

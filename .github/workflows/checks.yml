@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: checks-${{ github.ref }}
@@ -42,7 +42,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Verify Android cancellation with blocked native startup and shutdown
-        run: python -m unittest tests.test_android_lifecycle tests.test_android_access -v
+        run: python -m unittest tests.test_android_lifecycle tests.test_android_access tests.test_connection_report tests.test_control_policy tests.test_api_tunnel_route tests.test_premium_policy tests.test_reconnect tests.test_traffic_totals -v
       - name: Preserve pilot signing identity
         uses: actions/cache@v4
         with:
@@ -82,19 +82,62 @@ jobs:
         # Exercise real loopback sockets separately from the denied-socket parser test.
         run: |
           python tools/build_android.py --sdk "$ANDROID_HOME"
+      - name: Capture and verify native phone interfaces
+        run: |
+          sudo chmod a+rw /dev/kvm
+          # Native compilation is complete; reclaim its disposable compiler cache.
+          go clean -cache
+          rm -rf "$ANDROID_HOME/ndk"
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/tpp-avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          sdkmanager 'emulator' 'system-images;android-35;google_apis;x86_64' > /tmp/emulator-install.log
+          echo no | avdmanager create avd -n premium-ui -k 'system-images;android-35;google_apis;x86_64' --device pixel_6 -p "$ANDROID_AVD_HOME/premium-ui.avd"
+          sed -i '/^disk.dataPartition.size=/d' "$ANDROID_AVD_HOME/premium-ui.avd/config.ini"
+          echo 'disk.dataPartition.size=2048M' >> "$ANDROID_AVD_HOME/premium-ui.avd/config.ini"
+          df -h /
+          "$ANDROID_HOME/emulator/emulator" -avd premium-ui -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -partition-size 2048 -no-metrics -no-snapshot > /tmp/emulator.log 2>&1 &
+          timeout 90 adb wait-for-device || { cat /tmp/emulator.log; exit 1; }
+          timeout 240 bash -c 'until [ "$(adb shell getprop sys.boot_completed | tr -d "\r")" = 1 ]; do sleep 3; done' || { cat /tmp/emulator.log; exit 1; }
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
+          adb shell input keyevent 82
+          python tools/verify_premium_ui.py
+          adb emu kill
       - name: Package rebuild sources and licenses
         run: |
-          tar --exclude=.git --exclude=.local-signing --exclude='*.aar' --exclude='*.apk' --exclude='android/build' --exclude='__pycache__' -czf /tmp/Top-private-Plug-rebuild-source.tar.gz .
+          tar --exclude=.git --exclude=.local-signing --exclude='*.aar' --exclude='*.apk' --exclude='android/build' --exclude='android/ui-build' --exclude='ui-screenshots' --exclude='*.zip' --exclude='__pycache__' -czf /tmp/Top-private-Plug-rebuild-source.tar.gz .
           cp /tmp/Top-private-Plug-rebuild-source.tar.gz .
+      - name: Publish verified pilot as a GitHub Release
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          tag="pilot-0.1.17-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          zip -j Top-private-Plug-0.1.17-pilot.zip Top-private-Plug-0.1.17-pilot.apk
+          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.17-ui-screenshots.zip > SHA256SUMS
+          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.17 pilot" --prerelease --notes "Fixes PostgreSQL usage refresh for active shared trials and tests 10 GB accounting without duplicate charging. Samples tunnel traffic every second and syncs counters every five seconds. Adds a black interface, clear stale-balance state and customer-safe messages without server credentials. Preserves MTN, Telkom and Cell C, account authorization and certificate checks. Physical-device carrier validation is still required."
+          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.17-ui-screenshots.zip SHA256SUMS
+          gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
+        if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Top-private-Plug-pilot-${{ github.run_number }}
           path: |
             Top-private-Plug-*-pilot.apk
             Top-private-Plug-rebuild-source.tar.gz
+            Top-private-Plug-0.1.17-ui-screenshots.zip
+            ui-screenshots/*.png
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
+
+
+
+
 
 
 

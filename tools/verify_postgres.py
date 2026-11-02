@@ -75,6 +75,18 @@ class PostgresXrayTests(XrayTests):
         self.assertEqual(self.store.account(issued['account']['id'])['used'],100)
         self.assertEqual(self.store.account(issued['account']['id'])['device_count'],2)
 
+    def test_active_trial_balance_serializes_after_ten_gb(self):
+        self.store.update_account(self.account, {'quota_bytes': 100_000_000_000})
+        connected = self.connect()
+        self.beat(connected, 1_000_000_000, 9_000_000_000)
+        # Uses real PostgreSQL SUM(bigint) / Decimal while the session is live.
+        result = json.loads(json.dumps(self.store.account(self.account)))
+        self.assertEqual(result['used'], 10_000_000_000)
+        self.assertEqual(result['remaining_bytes'], 90_000_000_000)
+        self.assertEqual(result['session']['down'], 9_000_000_000)
+        self.beat(connected, 1_000_000_000, 9_000_000_000)
+        self.assertEqual(self.store.account(self.account)['used'], 10_000_000_000)
+
 
 try:
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PostgresControlTests)
@@ -84,4 +96,5 @@ finally:
     with psycopg.connect(dsn, autocommit=True) as connection:
         connection.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
 sys.exit(0 if result.wasSuccessful() else 1)
+
 

@@ -9,3 +9,4 @@ final class AccessState {
         return "active".equals(status) ? State.ACTIVE : State.INACTIVE;
     }
 }
+

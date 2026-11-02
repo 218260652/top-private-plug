@@ -288,6 +288,11 @@ class Store:
                 imported = db.execute('SELECT up,down,seen FROM xray_sessions WHERE account=? AND seen>?', (account_id, self.now()-30)).fetchone()
             if imported:
                 result['session'] = dict(imported)
+                # PostgreSQL SUM(bigint) returns Decimal, unlike SQLite SUM.
+                # Normalize session totals before the API's JSON encoder sees them.
+                for key in ('up', 'down', 'seen', 'connected_devices'):
+                    if key in result['session'] and result['session'][key] is not None:
+                        result['session'][key] = int(result['session'][key])
                 result['session']['enforcement'] = 'app-reported'
             result['online'] = result['session'] is not None
             return result
@@ -554,4 +559,5 @@ class Store:
             for table in ['tokens', 'trial_tokens', 'tickets', 'challenges', 'admin_sessions']:
                 db.execute(f'DELETE FROM {table} WHERE expires<=?', (self.now(),))
             db.execute('DELETE FROM usage WHERE at<?', (self.now() - 31 * 86400,))
+
 
