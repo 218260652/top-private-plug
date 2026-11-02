@@ -130,11 +130,17 @@ function checkImport(value) {
   if (outbound.protocol === 'vless') {
     const server = outbound.settings?.vnext?.[0];
     const uuid=server?.users?.[0]?.id;
-    if (!server?.address || server.address.startsWith('REPLACE_') || !Number.isInteger(server.port) ||
-        typeof uuid !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid))
-      throw Error('VLESS requires a real server hostname, numeric port and valid UUID. Replace the example values.');
+    if (typeof server?.address !== 'string' || !server.address || server.address.startsWith('REPLACE_'))
+      throw Error('VLESS server address is missing or still an example. Set settings.vnext[0].address to your server hostname or IP.');
+    const port = typeof server.port === 'string' && /^[0-9]{1,5}$/.test(server.port.trim()) ? Number(server.port.trim()) : server.port;
+    if (!Number.isInteger(port) || port < 1 || port > 65535)
+      throw Error('VLESS server port must be a number from 1 to 65535, such as 443.');
+    // Match the UUID forms accepted by Python uuid.UUID on the server.
+    const uuidHex = typeof uuid === 'string' ? uuid.replaceAll('urn:', '').replaceAll('uuid:', '').replace(/^[{}]+|[{}]+$/g, '').replaceAll('-', '') : '';
+    if (!/^[0-9a-f]{32}$/i.test(uuidHex))
+      throw Error('VLESS user ID is missing or invalid. Set settings.vnext[0].users[0].id to the complete UUID supplied with your connection.');
     const serverName=outbound.streamSettings?.tlsSettings?.serverName;
-    if (typeof serverName !== 'string' || !serverName || serverName.startsWith('REPLACE_'))
+    if (serverName && (typeof serverName !== 'string' || serverName.startsWith('REPLACE_')))
       throw Error('Replace the example TLS certificate hostname with the real server name.');
   }
   if (!['tcp','raw','ws',undefined].includes(outbound.streamSettings?.network) || outbound.streamSettings?.security !== 'tls')
@@ -167,5 +173,6 @@ $('xray-form').addEventListener('submit',e=>{e.preventDefault();const f=e.target
   notice(protocol+' profile saved. Assign to an access account; live connectivity still needs testing.');
 });});
 $('xray-reset').onclick=()=>{$('xray-form').reset();$('xray-form').elements.id.value='';$('xray-title').textContent='Import connection JSON';$('import-feedback').textContent='';};
+
 
 

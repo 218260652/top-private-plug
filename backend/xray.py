@@ -20,6 +20,9 @@ def host(value):
 
 
 def port(value):
+    # Exporters sometimes serialize numeric ports as JSON strings.
+    if isinstance(value, str) and re.fullmatch(r'[0-9]{1,5}', value.strip()):
+        value = int(value.strip())
     if type(value) is not int or not 1 <= value <= 65535:
         raise Fault('Invalid server port')
     return value
@@ -328,6 +331,7 @@ def toggle(store, profile_id, data):
         db.execute('UPDATE profiles SET enabled=?,version=version+1 WHERE id=?', (int(data['enabled']), profile_id))
         store.audit(db, 'xray_profile_enabled' if data['enabled'] else 'xray_profile_disabled', profile_id)
     return store.get_profile(profile_id)
+
 
 
 
