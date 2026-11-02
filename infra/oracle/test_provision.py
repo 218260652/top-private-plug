@@ -1,4 +1,6 @@
 import copy
+import os
+from types import SimpleNamespace as Obj
 import unittest
 from unittest.mock import Mock
 
@@ -178,6 +180,8 @@ class SDKContractTests(unittest.TestCase):
         try:
             import oci
         except ImportError:
+            if os.getenv("GITHUB_ACTIONS") == "true":
+                raise
             self.skipTest("Oracle SDK not installed locally; required in CI")
         cloud, store = Cloud(), Store()
         run_once(cloud, store, CONFIG, KEY, apply=True, now=100)
@@ -192,6 +196,36 @@ class SDKContractTests(unittest.TestCase):
         self.assertEqual(args[0].source_details.boot_volume_size_in_gbs, 50)
         self.assertIsNone(args[0].fault_domain)
         self.assertEqual(kwargs["opc_retry_token"], token)
+
+
+class InventoryBudgetTests(unittest.TestCase):
+    def inventory(self, cpu=0, ram=0, storage=0):
+        oracle = Oracle.__new__(Oracle)
+        oracle.identity, oracle.compute, oracle.storage = Mock(), Mock(), Mock()
+        oracle.identity.list_compartments.return_value = Obj(data=[])
+        oracle.identity.list_availability_domains.return_value = Obj(data=[Obj(name="AD")])
+        instances = [] if cpu == 0 else [Obj(
+            id="other", display_name="unrelated", lifecycle_state="RUNNING", shape=SHAPE,
+            shape_config=Obj(ocpus=cpu, memory_in_gbs=ram), freeform_tags={})]
+        oracle.compute.list_instances.return_value = Obj(data=instances)
+        oracle.storage.list_volumes.return_value = Obj(data=[])
+        oracle.storage.list_boot_volumes.return_value = Obj(data=[
+            Obj(size_in_gbs=storage, lifecycle_state="AVAILABLE")])
+        oracle.all = lambda method, **kwargs: method(**kwargs)
+        return oracle.inventory(CONFIG)
+
+    def test_existing_one_ocpu_six_gb_permits_one_more(self):
+        self.assertEqual(len(self.inventory(cpu=1, ram=6, storage=150)), 1)
+
+    def test_cpu_and_memory_budget_fail_closed(self):
+        with self.assertRaisesRegex(Stop, "A1 budget"):
+            self.inventory(cpu=2, ram=6)
+        with self.assertRaisesRegex(Stop, "A1 budget"):
+            self.inventory(cpu=1, ram=12)
+
+    def test_storage_budget_fail_closed(self):
+        with self.assertRaisesRegex(Stop, "volume budget"):
+            self.inventory(storage=151)
 
 
 if __name__ == "__main__":
