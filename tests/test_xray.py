@@ -60,9 +60,17 @@ class XrayTests(unittest.TestCase):
         self.beat(replacement)
         self.assertNotIn('00000000-0000-4000-8000-000000000001', json.dumps(self.store.profiles()))
 
+    def test_custom_id_survives_save_and_connect(self):
+        raw = self.vless_config()
+        raw['outbounds'][0]['settings']['vnext'][0]['users'][0]['id'] = 'olise'
+        xray.save(self.store, dict(self.data, config=raw, allow_insecure=True), self.profile['id'])
+        connected = self.connect()['config']
+        self.assertEqual(connected['outbounds'][0]['settings']['vnext'][0]['users'][0]['id'],
+                         '75215ecd-3575-5923-ae17-6377c4a6c66c')
+
     def test_vless_rejects_invalid_or_ambiguous_credentials_and_transport(self):
         with self.assertRaises(Fault): xray.normalize(self.vless_config())
-        for update in [{'id': 'invalid'}, {'id': 123}, {'flow': 'xtls-rprx-vision'}, {'encryption': 'invalid'}]:
+        for update in [{'id': 'invalid-id-that-exceeds-30-bytes!'}, {'id': 123}, {'flow': 'xtls-rprx-vision'}, {'encryption': 'invalid'}]:
             raw = self.vless_config()
             raw['outbounds'][0]['settings']['vnext'][0]['users'][0].update(update)
             with self.assertRaises(Fault): xray.normalize(raw, True)
@@ -313,5 +321,6 @@ class XrayApiTests(unittest.IsolatedAsyncioTestCase):
         headers['X-TPP-Features']='legacy-tls-test-v1'
         r=await self.client.post('/v1/connect',headers=headers,json=data);self.assertEqual(r.status,200)
         self.assertTrue((await r.json())['config']['outbounds'][0]['streamSettings']['tlsSettings']['allowInsecure'])
+
 
 

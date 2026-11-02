@@ -137,8 +137,9 @@ function checkImport(value) {
       throw Error('VLESS server port must be a number from 1 to 65535, such as 443.');
     // Match the UUID forms accepted by Python uuid.UUID on the server.
     const uuidHex = typeof uuid === 'string' ? uuid.replaceAll('urn:', '').replaceAll('uuid:', '').replace(/^[{}]+|[{}]+$/g, '').replaceAll('-', '') : '';
-    if (!/^[0-9a-f]{32}$/i.test(uuidHex))
-      throw Error('VLESS user ID is missing or invalid. Set settings.vnext[0].users[0].id to the complete UUID supplied with your connection.');
+    const textId = typeof uuid === 'string' && uuid.length > 0 && new TextEncoder().encode(uuid).length <= 30;
+    if ((!textId && !/^[0-9a-f]{32}$/i.test(uuidHex)) || uuid.startsWith('REPLACE_'))
+      throw Error('VLESS user ID must be your supplied UUID or text ID of 1 to 30 UTF-8 bytes. Replace any example value.');
     const serverName=outbound.streamSettings?.tlsSettings?.serverName;
     if (serverName && (typeof serverName !== 'string' || serverName.startsWith('REPLACE_')))
       throw Error('Replace the example TLS certificate hostname with the real server name.');

@@ -14,6 +14,23 @@ def fixture(port='443', identity='00000000000040008000000000000001'):
 
 
 class ImportValidationTests(unittest.TestCase):
+    def test_custom_ids_match_xray_mapping(self):
+        for identity, expected in [
+            ('olise', '75215ecd-3575-5923-ae17-6377c4a6c66c'),
+            # Published Xray documentation example: guards namespace/encoding.
+            ('我爱🍉老师1314', '5783a3e7-e373-51cd-8642-c83782b807c5'),
+        ]:
+            raw = fixture(identity=identity)
+            normalized = xray.normalize(raw)[0]
+            self.assertEqual(normalized['outbounds'][0]['settings']['vnext'][0]['users'][0]['id'], expected)
+            self.assertEqual(xray.normalize(normalized)[0], normalized)
+            self.assertEqual(raw['outbounds'][0]['settings']['vnext'][0]['users'][0]['id'], identity)
+        for identity in ['a' * 30, '界' * 10]:
+            xray.normalize(fixture(identity=identity))
+        for identity in ['', 'a' * 31, '界' * 11, 123, None]:
+            with self.subTest(identity=identity), self.assertRaises(Fault):
+                xray.normalize(fixture(identity=identity))
+
     def test_export_formats_normalize_without_changing_input(self):
         for port in [443, '443', ' 443 ']:
             raw = fixture(port)
@@ -42,6 +59,15 @@ const assert = require('node:assert/strict');
 const fixture = JSON.parse(process.argv[1]);
 assert.equal(checkImport(JSON.stringify(fixture)), 'VLESS');
 const server = fixture.outbounds[0].settings.vnext[0];
+for (const id of ['olise', '我爱🍉老师1314', 'a'.repeat(30), '界'.repeat(10)]) {
+  server.users[0].id = id;
+  assert.equal(checkImport(JSON.stringify(fixture)), 'VLESS');
+}
+for (const id of ['', 'a'.repeat(31), '界'.repeat(11), null, 123]) {
+  server.users[0].id = id;
+  assert.throws(() => checkImport(JSON.stringify(fixture)), /user ID/);
+}
+server.users[0].id = 'olise';
 server.port = '65536';
 assert.throws(() => checkImport(JSON.stringify(fixture)), /server port/);
 server.port = 443; server.users[0].id = 'REPLACE_UUID';

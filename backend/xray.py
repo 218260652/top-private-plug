@@ -57,12 +57,17 @@ def normalize(raw, allow_insecure=False):
                 raise Fault('Import exactly one VLESS user')
             user = users[0]
             identity = user['id']
-            if not isinstance(identity, str):
-                raise Fault('VLESS UUID is required')
+            if not isinstance(identity, str) or not identity:
+                raise Fault('VLESS user ID is required')
             try:
-                identity = str(uuid.UUID(identity))
-            except ValueError:
-                raise Fault('VLESS UUID is invalid') from None
+                # Xray common/uuid.ParseString maps 1–30 UTF-8 bytes to
+                # UUIDv5 with the nil namespace. Do not trim credential text.
+                if len(identity.encode('utf-8')) <= 30:
+                    identity = str(uuid.uuid5(uuid.UUID(int=0), identity))
+                else:
+                    identity = str(uuid.UUID(identity))
+            except (ValueError, UnicodeError):
+                raise Fault('VLESS user ID must be a UUID or text of 1 to 30 UTF-8 bytes') from None
             if user.get('encryption', 'none') != 'none' or user.get('flow', ''):
                 raise Fault('Only VLESS encryption none without flow is supported')
             settings = {'vnext': [{'address': address, 'port': server_port,
