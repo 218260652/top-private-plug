@@ -77,6 +77,10 @@ class GitHubState:
     def disable_workflow(self):
         self.api("PUT", "/actions/workflows/oracle-provision.yml/disable")
 
+    def workflow_enabled(self):
+        workflow = self.api("GET", "/actions/workflows/oracle-provision.yml")
+        return workflow["state"] == "active"
+
 
 def request_details(config, discovered, public_key):
     return {
@@ -309,12 +313,47 @@ def report(outcome):
             f.write("\nOnly RUNNING confirms a running VM. CHECK_PASSED creates nothing.\n")
 
 
+def watch_worker(cloud, store, config, public_key, *, max_seconds=345 * 60,
+                 clock=time.time, sleep=time.sleep, emit=report, progress=print):
+    """Retry inside one bounded job; no cron or recursive workflow is required."""
+    deadline = clock() + max_seconds
+    cycle = 0
+    retryable = {"NO_CAPACITY", "THROTTLED", "BACKOFF", "ACCEPTED",
+                 "PROVISIONING", "STARTING"}
+    while clock() < deadline:
+        if not store.workflow_enabled():
+            return {"status": "PAUSED", "message": "Workflow disabled; background retries stopped."}
+        cycle += 1
+        outcome = run_once(cloud, store, config, public_key, apply=True, now=clock())
+        emit({**outcome, "worker_cycle": cycle})
+        if outcome["status"] not in retryable:
+            return outcome
+        state = store.load()
+        # Never relaunch after acceptance. Pending instances only need monitoring.
+        if state.get("instance_id"):
+            wake_at = clock() + 60
+        else:
+            wake_at = max(clock() + 1, state.get("next_allowed", clock() + 300))
+        while clock() < min(wake_at, deadline):
+            remaining = min(wake_at, deadline) - clock()
+            progress("Heartbeat: background job active; next check in %d seconds." % remaining,
+                     flush=True)
+            sleep(min(60, remaining))
+            if not store.workflow_enabled():
+                return {"status": "PAUSED", "message": "Workflow disabled; background retries stopped."}
+    return {"status": "WATCH_WINDOW_ENDED",
+            "message": "Bounded background session finished. Saved state retained; manual restart required."}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--watch", action="store_true")
     args = parser.parse_args()
     config = json.loads(Path(__file__).with_name("settings.json").read_text())
     try:
+        if args.watch and not args.apply:
+            raise Stop("--watch requires --apply.")
         if args.apply and os.getenv("OCI_PROVISIONING_ENABLED") != "true":
             raise Stop("Enable OCI_PROVISIONING_ENABLED only after stopping the Termux retry process.")
         required = ("OCI_PRIVATE_KEY", "OCI_PUBLIC_SSH_KEY", "GH_STATE_TOKEN", "GITHUB_REPOSITORY", "OCI_DEFAULT_BRANCH")
@@ -326,7 +365,10 @@ def main():
         store = GitHubState(os.environ["GITHUB_REPOSITORY"], os.environ["GH_STATE_TOKEN"],
                             os.environ["OCI_DEFAULT_BRANCH"])
         cloud = Oracle(config, os.environ["OCI_PRIVATE_KEY"])
-        outcome = run_once(cloud, store, config, public_key, apply=args.apply)
+        if args.watch:
+            outcome = watch_worker(cloud, store, config, public_key)
+        else:
+            outcome = run_once(cloud, store, config, public_key, apply=args.apply)
         report(outcome)
         if args.apply and outcome["status"] in ("RUNNING", "CAMPAIGN_EXPIRED"):
             try:
