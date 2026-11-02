@@ -17,7 +17,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public final class MainActivity extends Activity {
-    int BG=0xff000000,PANEL=0xff101010,LINE=0xff303030,TEXT=0xfff5f5f5,MUTED=0xffb4b4b4;
+    int BG=0xff000000,PANEL=0xff10151d,LINE=0xff263442,TEXT=0xfff5f8fc,MUTED=0xffa9bacb;
     final int CYAN=0xff00cfff,MINT=0xff00e5a2,YELLOW=0xffffcb05,ORANGE=0xffea5b0c,TELKOM=0xff91e200;
     LinearLayout root,content,navigation; ScrollView scroll; Vault vault; Api api;
     JSONObject account; JSONArray profiles=new JSONArray(),points=new JSONArray();
@@ -46,19 +46,19 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed(){if(!tab.equals("Home")){tab="Home";render();}else super.onBackPressed();}
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     boolean light(){String mode=prefs.getString("theme","Dark");return mode.equals("Light")||(mode.equals("System")&&(getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)!=Configuration.UI_MODE_NIGHT_YES);}
-    void palette(){if(light()){BG=0xffeaf4fc;PANEL=0xf2f6fbff;LINE=0xff83b8d7;TEXT=0xff09223c;MUTED=0xff42637d;}else{BG=0xff000000;PANEL=0xff101010;LINE=0xff303030;TEXT=0xfff5f5f5;MUTED=0xffb4b4b4;}}
+    void palette(){if(light()){BG=0xffeaf4fc;PANEL=0xf2f6fbff;LINE=0xff83b8d7;TEXT=0xff09223c;MUTED=0xff42637d;}else{BG=0xff000000;PANEL=0xff10151d;LINE=0xff263442;TEXT=0xfff5f8fc;MUTED=0xffa9bacb;}}
     GradientDrawable shape(int color,int border,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));if(border!=0)d.setStroke(dp(1),border);return d;}
     TextView text(String s,int size,int color,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextColor(color);t.setTextSize(size);t.setLineSpacing(dp(2),1);t.setTypeface(Typeface.create(bold?"sans-serif-medium":"sans-serif",0));return t;}
     void add(LinearLayout parent,View child,int margin){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(margin);parent.addView(child,p);}
     LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(1);return v;}
-    LinearLayout panel(LinearLayout parent,int border){LinearLayout c=column();c.setPadding(dp(16),dp(17),dp(16),dp(17));c.setBackground(shape(PANEL,border,22));add(parent,c,14);return c;}
+    LinearLayout panel(LinearLayout parent,int border){LinearLayout c=column();c.setPadding(dp(18),dp(20),dp(18),dp(20));c.setBackground(shape(PANEL,border,24));add(parent,c,16);return c;}
     LinearLayout card(){return panel(content,LINE);}
     void center(LinearLayout parent,String s,int size,int color,int bottom){TextView t=text(s,size,color,true);t.setGravity(Gravity.CENTER);add(parent,t,bottom);}
     boolean stillHome(){return tab.equals("Home");}
     Drawable feedback(Drawable background,int color){return stillHome()?background:new RippleDrawable(android.content.res.ColorStateList.valueOf(color),background,null);}
     void art(LinearLayout parent,String mode,int height){if(mode.equals("hero"))return;PremiumArt v=new PremiumArt(this,mode,height);parent.addView(v,new LinearLayout.LayoutParams(-1,dp(height)));}
-    Button button(String label,boolean primary,View.OnClickListener click){Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextSize(14);b.setTypeface(Typeface.create("sans-serif-medium",0));b.setTextColor(primary?0xff001329:TEXT);b.setMinHeight(dp(52));b.setPadding(dp(12),dp(8),dp(12),dp(8));
-        GradientDrawable bg=primary?new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff00d9ec,0xff0087ff}):shape(PANEL,LINE,15);bg.setCornerRadius(dp(15));bg.setStroke(dp(1),primary?CYAN:LINE);
+    Button button(String label,boolean primary,View.OnClickListener click){Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setTextSize(14);b.setTypeface(Typeface.create("sans-serif-medium",0));b.setTextColor(primary?0xff001329:TEXT);b.setMinHeight(dp(54));b.setPadding(dp(14),dp(9),dp(14),dp(9));
+        GradientDrawable bg=primary?new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{0xff00d9ec,0xff0087ff}):shape(PANEL,LINE,18);bg.setCornerRadius(dp(18));bg.setStroke(dp(1),primary?CYAN:LINE);
         b.setBackground(feedback(bg,0x6600d5ff));b.setOnClickListener(click);b.setEnabled(!busy);return b;}
     void row(LinearLayout parent,String icon,String title,String subtitle,int color,Runnable action){LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER_VERTICAL);r.setPadding(dp(11),dp(11),dp(12),dp(11));r.setBackground(feedback(shape(PANEL,LINE,17),0x4400d5ff));
         View glyph=new View(this){Paint p=new Paint(3);@Override protected void onDraw(Canvas c){drawIcon(c,icon,dp(10),dp(10),dp(28),color);}};glyph.setBackground(shape(light()?0xffddecf9:0xff181818,color,13));r.addView(glyph,new LinearLayout.LayoutParams(dp(48),dp(48)));
@@ -66,11 +66,11 @@ public final class MainActivity extends Activity {
     void render(){if(isFinishing()||root==null)return;palette();renderedBalanceFresh=balanceFresh();int y=scroll==null||!tab.equals(renderedTab)?0:scroll.getScrollY();renderedTab=tab;renderedTunnelState=TunnelService.state;renderedTunnelDetail=TunnelService.detail;liveLabels.clear();root.removeAllViews();root.setBackground(new Backdrop());getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);getWindow().getDecorView().setSystemUiVisibility(light()?View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR:0);
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);View logo=new View(this){@Override protected void onDraw(Canvas canvas){drawIcon(canvas,"shield",dp(2),dp(3),dp(38),CYAN);}};logo.setContentDescription("Top private Plug logo");header.addView(logo,new LinearLayout.LayoutParams(dp(42),dp(48)));
         LinearLayout brand=column();brand.setPadding(dp(9),0,0,0);TextView name=text("Top private Plug",21,TEXT,true);android.text.SpannableString span=new android.text.SpannableString("Top private Plug");span.setSpan(new android.text.style.ForegroundColorSpan(CYAN),12,16,0);name.setText(span);add(brand,name,0);add(brand,text("VPN",12,MUTED,false),0);header.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
-        PremiumArt gear=new PremiumArt(this,"icon:settings",44);gear.setContentDescription("Settings");gear.setOnClickListener(v->{tab="Settings";render();});header.addView(gear,new LinearLayout.LayoutParams(dp(44),dp(44)));add(root,header,4);
+        PremiumArt gear=new PremiumArt(this,"icon:settings",44);gear.setContentDescription("Settings");gear.setOnClickListener(v->{tab="Settings";render();});header.addView(gear,new LinearLayout.LayoutParams(dp(44),dp(44)));add(root,header,10);
         scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);scroll.setVerticalScrollBarEnabled(false);content=column();scroll.addView(content);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         if(!lastError.isEmpty())row(content,"info","Account update",lastError,CYAN,()->refresh());
         switch(tab){case "Usage":usage();break;case "Plans":plans();break;case "Settings":settings();break;case "Account":accountPage();break;case "Notifications":notificationPage();break;case "Service settings":servicePage();break;case "Privacy & security":privacyPage();break;case "Support & help":supportPage();break;case "About":aboutPage();break;default:home();}
-        navigation=new LinearLayout(this);navigation.setPadding(dp(3),dp(6),dp(3),dp(5));navigation.setBackground(shape(PANEL,LINE,23));String[] tabs={"Home","Usage","Plans","Settings"},icons={"home","usage","database","settings"};
+        navigation=new LinearLayout(this);navigation.setPadding(dp(5),dp(8),dp(5),dp(7));navigation.setBackground(shape(PANEL,LINE,25));String[] tabs={"Home","Usage","Plans","Settings"},icons={"home","usage","database","settings"};
         for(int i=0;i<tabs.length;i++){final String next=tabs[i];boolean active=next.equals(tab)||next.equals("Settings")&&!Arrays.asList("Home","Usage","Plans").contains(tab);LinearLayout item=column();item.setGravity(Gravity.CENTER);final int tint=active?CYAN:MUTED;final String symbol=icons[i];View image=new View(this){@Override protected void onDraw(Canvas c){drawIcon(c,symbol,getWidth()/2f-dp(12),dp(4),dp(24),tint);}};item.addView(image,new LinearLayout.LayoutParams(-1,dp(33)));TextView label=text(next,12,tint,active);label.setGravity(Gravity.CENTER);if(active)label.setShadowLayer(dp(7),0,0,CYAN);add(item,label,4);View underline=new View(this);underline.setBackground(shape(active?CYAN:0x00000000,0,4));item.addView(underline,new LinearLayout.LayoutParams(dp(34),dp(3)));item.setPadding(0,0,0,dp(2));item.setContentDescription(next);item.setOnClickListener(v->{tab=next;render();if(next.equals("Usage"))loadGraph();});navigation.addView(item,new LinearLayout.LayoutParams(0,-2,1));}add(root,navigation,0);scroll.post(()->scroll.scrollTo(0,y));updateLiveLabels();}
     void title(String heading,String subtitle){add(content,text(heading,29,TEXT,true),5);if(!subtitle.isEmpty())add(content,text(subtitle,14,MUTED,false),13);}
     void country(){center(content,"●  South Africa",13,MINT,5);}
