@@ -24,7 +24,11 @@ except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
  failed=ROOT/'ui-screenshots';failed.mkdir(exist_ok=True)
  subprocess.run([str(adb),'pull','/sdcard/Android/data/za.co.topprivateplug/files/.',str(failed)],check=False)
  raise
-if 'UI snapshots and logout checks passed' not in result.stdout:raise SystemExit('Native UI check failed')
+if 'UI snapshots and logout checks passed' not in result.stdout:
+ print('Native UI check failed; gathering emulator diagnostics', flush=True)
+ print(result.stdout, flush=True)
+ subprocess.run([str(adb),'logcat','-d','-t','500','-v','brief'],check=False)
+ raise SystemExit('Native UI check failed')
 shots=ROOT/'ui-screenshots';shots.mkdir(exist_ok=True);run(adb,'pull','/sdcard/Android/data/za.co.topprivateplug/files/.',shots)
 with zipfile.ZipFile(ROOT/'Top-private-Plug-0.1.17-ui-screenshots.zip','w',zipfile.ZIP_DEFLATED) as z:
  for image in sorted(shots.glob('*.png')):z.write(image,image.name)
