@@ -1,0 +1,53 @@
+name: Oracle Singapore provisioner
+on:
+  schedule:
+    - cron: '2-57/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Check credentials only, or apply (requires enable variable and stopped Termux)'
+        type: choice
+        options: [check, apply]
+        default: check
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oracle-singapore-provisioner
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    if: github.event_name == 'workflow_dispatch' || vars.OCI_PROVISIONING_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install Oracle SDK
+        run: python -m pip install -r infra/oracle/requirements.txt
+      - name: Test provisioning safeguards
+        run: python -m unittest discover -s infra/oracle -p 'test_*.py' -v
+      - name: Check or provision one Singapore instance
+        env:
+          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_PUBLIC_SSH_KEY: ${{ secrets.OCI_PUBLIC_SSH_KEY }}
+          GH_STATE_TOKEN: ${{ github.token }}
+          OCI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          OCI_PROVISIONING_ENABLED: ${{ vars.OCI_PROVISIONING_ENABLED }}
+          OCI_MODE: ${{ github.event.inputs.mode || 'apply' }}
+        run: |
+          if [ "$OCI_MODE" = "apply" ]; then
+            python -u infra/oracle/provision.py --apply
+          else
+            python -u infra/oracle/provision.py
+          fi
