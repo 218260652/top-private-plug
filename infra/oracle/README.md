@@ -1,4 +1,4 @@
-# Singapore VM provisioner
+# Singapore VM provisioner — bounded background worker
 
 This is an independent infrastructure workflow; it does not modify the application.
 It requests one on-demand `VM.Standard.A1.Flex` instance in the tenancy's Singapore
@@ -36,9 +36,22 @@ gh variable set OCI_PROVISIONING_ENABLED --repo 218260652/top-private-plug --bod
 gh workflow run oracle-provision.yml --repo 218260652/top-private-plug -f mode=apply
 ```
 
-GitHub will then schedule attempts roughly every five minutes. Schedules may be
-delayed or dropped. The phone can be turned off after GitHub has started.
-Private-repository Actions usage consumes the account's Actions allowance;
+The apply job now retries inside one running GitHub job. It does not depend on
+cron schedules. A session lasts at most 345 minutes (5 hours 45 minutes), with a
+355-minute job timeout. The phone can be turned off after GitHub has started.
+
+The current job prints a heartbeat every minute and waits at least the saved
+cooldown before another launch. Inspect the same run → **provision** →
+**Check or watch Singapore provisioning** to see progress; attempts no longer
+appear as separate runs. Capacity retries wait about five minutes; throttling
+backs off up to 30 minutes. Once accepted, only that instance is monitored.
+
+Changing this workflow file on main starts a session when the enable variable is
+true. Ordinary application pushes do not start provisioning. To start another
+session later, run the workflow with `mode=apply`. No automatic session chaining
+is configured, so runner usage stays bounded.
+A waiting runner also consumes minutes. Private-repository Actions usage consumes
+the account's Actions allowance;
 check billing settings before leaving it enabled. Resource budget checks do not
 prove billing eligibility, monthly usage, or that every tenancy resource is free.
 
@@ -58,10 +71,14 @@ Only a check that passed or a running VM makes the provisioning step green.
 Capacity, cooldown, pending launches and expired campaigns return a nonzero status.
 The summary explains the result. A red run during capacity shortages is expected.
 
-The campaign lasts at most 72 hours with an additional 864-attempt ceiling.
-At expiry the workflow disables itself. To stop earlier, disable the workflow
-in Actions or set `OCI_PROVISIONING_ENABLED=false`. Disabling does not cancel a
-currently running job; cancel it separately if necessary, then inspect Oracle.
+The saved campaign still has a 72-hour hard limit and an additional 864-attempt
+ceiling, but an individual background session stops after 345 minutes.
+`WATCH_WINDOW_ENDED` means the session ended and needs a manual restart if wanted.
+At campaign expiry the workflow disables itself. To stop immediately, cancel the
+current run in Actions. Disabling the workflow also stops the worker at its next
+heartbeat, within about a minute unless an API call is in progress. Setting
+`OCI_PROVISIONING_ENABLED=false` prevents new sessions but does not change the
+environment of an already running job; cancel that run separately.
 
 ## Durable safeguards
 
