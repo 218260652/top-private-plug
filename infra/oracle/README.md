@@ -59,17 +59,18 @@ prove billing eligibility, monthly usage, or that every tenancy resource is free
 
 * `RUNNING`: the VM is running; summary includes its public IP when available.
   The workflow disables itself automatically. Keep the SSH private key on the phone.
-* `ACCEPTED` / `PROVISIONING`: Oracle accepted the request. Later runs monitor that
+* `ACCEPTED` / `PROVISIONING`: Oracle accepted the request. Later worker cycles monitor that
   instance only. A launch response alone is not proof the VM is running.
-* `NO_CAPACITY`: Oracle has no suitable host capacity. Wait for later attempts;
+* `NO_CAPACITY`: Oracle has no suitable host capacity. The active worker waits for later attempts;
   this workflow cannot guarantee capacity.
 * `THROTTLED` / `BACKOFF`: no immediate retry; cooldown grows up to 30 minutes.
 * `STOPPED` / `ERROR`: read the summary before changing anything. Do not delete the
   state branch to restart an uncertain request.
 
-Only a check that passed or a running VM makes the provisioning step green.
-Capacity, cooldown, pending launches and expired campaigns return a nonzero status.
-The summary explains the result. A red run during capacity shortages is expected.
+A background job stays in progress (yellow) while it waits and retries. Only a
+check that passed or a running VM makes the completed provisioning step green.
+An ended session without a running VM, or a fatal error, is red. Read the latest
+log outcome to distinguish capacity waiting, API errors and completed provisioning.
 
 The saved campaign still has a 72-hour hard limit and an additional 864-attempt
 ceiling, but an individual background session stops after 345 minutes.
