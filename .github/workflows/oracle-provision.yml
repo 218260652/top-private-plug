@@ -1,7 +1,7 @@
 name: Oracle Singapore provisioner
 on:
   schedule:
-    - cron: '2-57/5 * * * *'
+    - cron: '3,8,13,18,23,28,33,38,43,48,53,58 * * * *'
   workflow_dispatch:
     inputs:
       mode:
