@@ -1,7 +1,8 @@
 name: Oracle Singapore provisioner
 on:
-  schedule:
-    - cron: '3,8,13,18,23,28,33,38,43,48,53,58 * * * *'
+  push:
+    branches: [main]
+    paths: ['.github/workflows/oracle-provision.yml']
   workflow_dispatch:
     inputs:
       mode:
@@ -21,7 +22,7 @@ jobs:
   provision:
     if: github.event_name == 'workflow_dispatch' || vars.OCI_PROVISIONING_ENABLED == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 355
     permissions:
       contents: write
       actions: write
@@ -37,7 +38,7 @@ jobs:
         run: python -m pip install -r infra/oracle/requirements.txt
       - name: Test provisioning safeguards
         run: python -m unittest discover -s infra/oracle -p 'test_*.py' -v
-      - name: Check or provision one Singapore instance
+      - name: Check or watch Singapore provisioning
         env:
           OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
           OCI_PUBLIC_SSH_KEY: ${{ secrets.OCI_PUBLIC_SSH_KEY }}
@@ -47,7 +48,7 @@ jobs:
           OCI_MODE: ${{ github.event.inputs.mode || 'apply' }}
         run: |
           if [ "$OCI_MODE" = "apply" ]; then
-            python -u infra/oracle/provision.py --apply
+            python -u infra/oracle/provision.py --apply --watch
           else
             python -u infra/oracle/provision.py
           fi
