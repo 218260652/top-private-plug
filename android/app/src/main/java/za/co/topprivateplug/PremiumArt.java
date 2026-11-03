@@ -35,7 +35,7 @@ final class PremiumArt extends View {
         } else if(mode.startsWith("icon:")){a.drawIcon(c,mode.substring(5),cx-d(16),cy-d(16),d(32),a.CYAN);}
         else if(mode.equals("chart"))drawHistory(c,w,h,angle);
         else if(mode.equals("spark")){
-            line(c,a.DOWNLOAD,2);int n=a.liveSamples.size();if(n>1){Path path=new Path();float max=1;for(float v:a.liveSamples)max=Math.max(max,v);for(int i=0;i<n;i++){float x=w*i/(n-1),y=h-d(6)-(h-d(14))*(a.liveSamples.get(i)+(i>0?(a.liveSamples.get(i-1)-a.liveSamples.get(i))*(1-Math.min(1,(android.os.SystemClock.uptimeMillis()-sampleAt)/250f)):0))/max;if(i==0)path.moveTo(x,y);else path.lineTo(x,y);}c.drawPath(path,p);}else label(c,"Live traffic appears when connected",w/2,h/2,11,a.MUTED,false);
+            line(c,a.CYAN,2);int n=a.liveSamples.size();if(n>1){Path path=new Path();float max=1;for(float v:a.liveSamples)max=Math.max(max,v);for(int i=0;i<n;i++){float x=w*i/(n-1),y=h-d(6)-(h-d(14))*(a.liveSamples.get(i)+(i>0?(a.liveSamples.get(i-1)-a.liveSamples.get(i))*(a.prefs.getBoolean("reduce_motion",false)?0:1-Math.min(1,(android.os.SystemClock.uptimeMillis()-sampleAt)/250f)):0))/max;if(i==0)path.moveTo(x,y);else path.lineTo(x,y);}c.drawPath(path,p);}else label(c,"Live traffic appears when connected",w/2,h/2,11,a.MUTED,false);
         }
         if(mode.equals("spark")&&!a.prefs.getBoolean("reduce_motion",false)&&android.os.SystemClock.uptimeMillis()-sampleAt<250)postInvalidateOnAnimation();
         if(motionEnabled())postInvalidateDelayed(40);
