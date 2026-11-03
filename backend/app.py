@@ -53,6 +53,7 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
                 if authorization.startswith('Bearer '):
                     limiter.check(('api_authenticated', peer(request)), 1800)
                     limiter.check(('api_device', digest(authorization)), 120)
+                    await asyncio.to_thread(store.check_network, authorization[7:], request.headers.get('X-TPP-Network'))
                 else:
                     limiter.check(('api_public', peer(request)), 360)
             response = await handler(request)
@@ -94,7 +95,7 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
         return header[7:]
 
     async def health(request):
-        return web.json_response({'status': 'ok', 'gateway_enabled': False, 'protocol': 'VLESS/Trojan/Xray', 'connection_method': 'imported-profile'})
+        return web.json_response({'status': 'ok', 'gateway_enabled': False, 'network_binding_version': 1, 'protocol': 'VLESS/Trojan/Xray', 'connection_method': 'imported-profile'})
 
     async def setup_status(request):
         return web.json_response({'setup_required': not store.has_admin()})
@@ -120,6 +121,8 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
 
     async def issue(request):
         data = await body(request)
+        if data.get('carrier') not in store.NETWORKS:
+            raise Fault('Choose the access code network',422)
         selected = data.get('profile_ids')
         if not isinstance(selected, list) or not selected or any(not isinstance(pid, str) for pid in selected):
             raise Fault('Choose at least one imported connection profile')
@@ -162,7 +165,7 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
 
     async def activate(request):
         limiter.check(('activate', peer(request)), 150, 300)
-        return web.json_response(store.activate(await body(request)))
+        return web.json_response(store.activate(await body(request), require_network=True))
 
     async def status(request):
         account = store.client_auth(token(request))
@@ -171,7 +174,8 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     async def profiles(request):
         account = store.client_auth(token(request))
         engines = request.headers.get('X-TPP-Engines', 'tpp').split(',')
-        return web.json_response({'profiles': [p for p in store.profiles() if p['id'] in json.loads(account['profiles']) and p['enabled'] and p['engine'] == 'xray' and 'xray' in engines]})
+        return web.json_response({'profiles': [p for p in store.profiles() if p['id'] in json.loads(account['profiles']) and p['enabled'] and p['engine'] == 'xray' and 'xray' in engines
+                and (not account['carrier'] or p['carrier'] in (account['carrier'],'Any'))]})
 
     async def connect(request):
         store.client_auth(token(request))
