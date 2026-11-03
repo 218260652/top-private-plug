@@ -15,7 +15,7 @@ with zipfile.ZipFile(work/'test.apk','a') as z:
 run(bt/'zipalign','-f','4',work/'test.apk',work/'aligned.apk')
 run(bt/'apksigner','sign','--ks',ROOT/'.local-signing/debug.keystore','--ks-pass','pass:android','--out',work/'signed.apk',work/'aligned.apk')
 adb=sdk/'platform-tools/adb'
-run(adb,'install','-r','/tmp/tpp-baseline/Top-private-Plug-0.1.18-pilot.apk')
+run(adb,'install','-r','/tmp/tpp-baseline/Top-private-Plug-0.1.19-pilot.apk')
 run(adb,'shell','run-as','za.co.topprivateplug','mkdir','-p','shared_prefs')
 import shlex
 probe='printf \'%s\' \'<map><string name="sentinel">keep-existing-data</string></map>\' > shared_prefs/update_probe.xml'

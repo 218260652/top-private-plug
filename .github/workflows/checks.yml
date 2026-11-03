@@ -89,13 +89,13 @@ jobs:
         # Exercise real loopback sockets separately from the denied-socket parser test.
         run: |
           python tools/build_android.py --sdk "$ANDROID_HOME"
-      - name: Verify update identity against working 0.1.18 pilot
+      - name: Verify update identity against working 0.1.19 pilot
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh run download 41567376708 -n Top-private-Plug-pilot-74 -D /tmp/tpp-baseline
-          python tools/verify_update_identity.py /tmp/tpp-baseline/Top-private-Plug-0.1.18-pilot.apk Top-private-Plug-0.1.20-pilot.apk
+          gh run download 41670192607 -n Top-private-Plug-pilot-79 -D /tmp/tpp-baseline
+          python tools/verify_update_identity.py /tmp/tpp-baseline/Top-private-Plug-0.1.19-pilot.apk Top-private-Plug-0.1.20-pilot.apk
       - name: Capture and verify native phone interfaces
         run: |
           sudo chmod a+rw /dev/kvm

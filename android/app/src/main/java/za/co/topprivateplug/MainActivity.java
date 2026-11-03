@@ -91,7 +91,7 @@ public final class MainActivity extends Activity {
         item.setOnClickListener(v->selectNetwork(n));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(70),1);lp.setMargins(dp(3),0,dp(3),dp(16));options.addView(item,lp);
     }add(content,options,0);}
     void renderSimple(){
-        palette();int y=scroll==null?0:scroll.getScrollY();renderedTab=tab="Home";renderedBalanceFresh=balanceFresh();renderedTunnelState=TunnelService.state;renderedTunnelDetail=TunnelService.detail;
+        palette();if(!light()){BG=0xff070d13;PANEL=0xff101e2a;LINE=0xff233d4c;}int y=scroll==null?0:scroll.getScrollY();renderedTab=tab="Home";renderedBalanceFresh=balanceFresh();renderedTunnelState=TunnelService.state;renderedTunnelDetail=TunnelService.detail;
         liveLabels.clear();liveArts.clear();root.removeAllViews();root.setBackgroundColor(BG);getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
         scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setVerticalScrollBarEnabled(false);content=column();content.setPadding(dp(6),dp(20),dp(6),dp(12));scroll.addView(content);root.addView(scroll,new LinearLayout.LayoutParams(-1,-1));
         center(content,"TOP PRIVATE PLUG",27,TEXT,2);TextView sub=text("PRIVATE VPN",13,MUTED,false);sub.setLetterSpacing(.15f);sub.setGravity(Gravity.CENTER);add(content,sub,12);
