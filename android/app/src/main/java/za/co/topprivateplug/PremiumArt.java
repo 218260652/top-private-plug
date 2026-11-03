@@ -7,6 +7,8 @@ import org.json.JSONObject;
 
 /** Small, lifecycle-bound canvas animations. No network or synthetic usage data. */
 final class PremiumArt extends View {
+    long sampleAt;
+    void sampleChanged(){sampleAt=android.os.SystemClock.uptimeMillis();invalidate();}
     final MainActivity a; final String mode; final Paint p=new Paint(3);
     PremiumArt(MainActivity a,String mode,int height){super(a);this.a=a;this.mode=mode;setMinimumHeight(a.dp(height));setContentDescription(mode.equals("remaining")?"Remaining account data":"VPN "+mode);}
     float d(float n){return a.dp(n);}
@@ -33,8 +35,9 @@ final class PremiumArt extends View {
         } else if(mode.startsWith("icon:")){a.drawIcon(c,mode.substring(5),cx-d(16),cy-d(16),d(32),a.CYAN);}
         else if(mode.equals("chart"))drawHistory(c,w,h,angle);
         else if(mode.equals("spark")){
-            line(c,a.CYAN,2);int n=a.liveSamples.size();if(n>1){Path path=new Path();float max=1;for(float v:a.liveSamples)max=Math.max(max,v);for(int i=0;i<n;i++){float x=w*i/(n-1),y=h-d(6)-(h-d(14))*a.liveSamples.get(i)/max;if(i==0)path.moveTo(x,y);else path.lineTo(x,y);}c.drawPath(path,p);}else label(c,"Live traffic appears when connected",w/2,h/2,11,a.MUTED,false);
+            line(c,a.DOWNLOAD,2);int n=a.liveSamples.size();if(n>1){Path path=new Path();float max=1;for(float v:a.liveSamples)max=Math.max(max,v);for(int i=0;i<n;i++){float x=w*i/(n-1),y=h-d(6)-(h-d(14))*(a.liveSamples.get(i)+(i>0?(a.liveSamples.get(i-1)-a.liveSamples.get(i))*(1-Math.min(1,(android.os.SystemClock.uptimeMillis()-sampleAt)/250f)):0))/max;if(i==0)path.moveTo(x,y);else path.lineTo(x,y);}c.drawPath(path,p);}else label(c,"Live traffic appears when connected",w/2,h/2,11,a.MUTED,false);
         }
+        if(mode.equals("spark")&&!a.prefs.getBoolean("reduce_motion",false)&&android.os.SystemClock.uptimeMillis()-sampleAt<250)postInvalidateOnAnimation();
         if(motionEnabled())postInvalidateDelayed(40);
     }
     void drawHistory(Canvas c,float w,float h,float angle){
@@ -43,7 +46,7 @@ final class PremiumArt extends View {
         for(int i=0;i<4;i++){float y=top+(bottom-top)*i/3;line(c,a.LINE,.6f);c.drawLine(l,y,r,y,p);label(c,a.bytes((long)(max*(3-i)/3.0)),d(21),y+d(4),9,a.MUTED,false);}
         if(count==0){label(c,"No recorded usage in this period",(l+r)/2,(top+bottom)/2,12,a.MUTED,false);return;}
         long first=a.points.optJSONObject(0).optLong("at"),last=a.points.optJSONObject(count-1).optLong("at");
-        for(String key:new String[]{"up","down"}){Path path=new Path();int color=key.equals("up")?a.CYAN:0xffa651ff;float lastX=l;
+        for(String key:new String[]{"up","down"}){Path path=new Path();int color=key.equals("up")?a.UPLOAD:a.DOWNLOAD;float lastX=l;
             for(int i=0;i<count;i++){JSONObject v=a.points.optJSONObject(i);float x=l+(r-l)*(last==first?.5f:(float)(v.optLong("at")-first)/(last-first)),y=bottom-(bottom-top)*v.optLong(key)/max;if(i==0)path.moveTo(x,y);else path.lineTo(x,y);lastX=x;}
             Path area=new Path(path);area.lineTo(lastX,bottom);area.lineTo(count==1?(l+r)/2:l,bottom);area.close();p.reset();p.setAntiAlias(true);p.setShader(new LinearGradient(0,top,0,bottom,color,0x00102040,Shader.TileMode.CLAMP));p.setAlpha(85);c.drawPath(area,p);line(c,color,2);c.drawPath(path,p);
             JSONObject v=a.points.optJSONObject(count-1);float y=bottom-(bottom-top)*v.optLong(key)/max;p.setStyle(Paint.Style.FILL);p.setAlpha(180+(int)(60*Math.sin(angle*Math.PI/180)));c.drawCircle(lastX,y,d(3),p);
@@ -51,5 +54,6 @@ final class PremiumArt extends View {
         java.text.SimpleDateFormat f=new java.text.SimpleDateFormat(a.graphHours==168?"dd MMM":"HH:mm",Locale.UK);f.setTimeZone(java.util.TimeZone.getTimeZone("Africa/Johannesburg"));label(c,f.format(new java.util.Date(first*1000)),l+d(12),h-d(12),10,a.MUTED,false);label(c,f.format(new java.util.Date(last*1000)),r-d(17),h-d(12),10,a.MUTED,false);
     }
 }
+
 
 

@@ -20,6 +20,7 @@ public class UiSnapshots extends Instrumentation {
   if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++)assertStillHome(group.getChildAt(i));}
  }
  @Override public void onStart(){Bundle results=new Bundle();try{
+  if(!"keep-existing-data".equals(getTargetContext().getSharedPreferences("update_probe",Context.MODE_PRIVATE).getString("sentinel","")))throw new AssertionError("Upgrade lost saved preferences");
   Bundle launch=new Bundle();launch.putString("stream","Launching native activity\n");sendStatus(0,launch);
   getTargetContext().getSharedPreferences("appearance",Context.MODE_PRIVATE).edit().putBoolean("reduce_motion",true).commit();
   a=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -34,9 +35,20 @@ public class UiSnapshots extends Instrumentation {
   main(()->{a.tab="Settings";a.render();});shot("09-settings");main(()->a.scroll.fullScroll(View.FOCUS_DOWN));shot("10-settings-bottom");
   for(String page:new String[]{"Account","Notifications","Service settings","Privacy & security","Support & help","About"}){main(()->{a.tab=page;a.render();});shot("11-"+page.replaceAll("[^a-zA-Z]","-"));}
   main(()->{a.prefs.edit().putString("theme","Light").apply();a.tab="Settings";a.render();});shot("12-light-theme");
+  main(()->{a.tab="Usage";a.render();});waitForIdleSync();
+  main(()->a.scroll.fullScroll(View.FOCUS_DOWN));waitForIdleSync();
+  final int[] oldY={0};main(()->{oldY[0]=a.scroll.getScrollY();for(int i=0;i<30;i++)a.render();});waitForIdleSync();
+  main(()->{if(Math.abs(a.scroll.getScrollY()-oldY[0])>2)throw new AssertionError("Rapid redraw lost scroll position");});
+  final java.util.concurrent.CountDownLatch release=new java.util.concurrent.CountDownLatch(1);
+  final java.util.concurrent.atomic.AtomicInteger calls=new java.util.concurrent.atomic.AtomicInteger();
+  final android.widget.ScrollView[] retained={null};
+  main(()->{retained[0]=a.scroll;for(int i=0;i<50;i++)a.runNetwork(()->{calls.incrementAndGet();release.await(5,java.util.concurrent.TimeUnit.SECONDS);},true);if(a.scroll!=retained[0])throw new AssertionError("Quiet refresh replaced screen at start");});
+  release.countDown();long deadline=SystemClock.elapsedRealtime()+6000;while(a.refreshing&&SystemClock.elapsedRealtime()<deadline)Thread.sleep(20);waitForIdleSync();
+  main(()->{if(calls.get()!=1||a.refreshing)throw new AssertionError("Refresh requests overlap");if(a.scroll!=retained[0])throw new AssertionError("Unchanged quiet refresh replaced screen");if(Math.abs(a.scroll.getScrollY()-oldY[0])>2)throw new AssertionError("Refresh moved scroll");if(a.UPLOAD!=0xffa651ff||a.DOWNLOAD!=0xff348dff)throw new AssertionError("Usage colors changed");});
   main(()->{a.prefs.edit().putString("theme","Dark").apply();a.tab="Home";TunnelService.state="Disconnected";TunnelService.detail="";a.logout();if(!a.vault.token().isEmpty()||a.account!=null)throw new AssertionError("Logout did not clear account");});shot("13-logged-out");
   results.putString("stream","UI snapshots and logout checks passed\n");finish(Activity.RESULT_OK,results);
  }catch(Throwable e){results.putString("stream",android.util.Log.getStackTraceString(e));finish(Activity.RESULT_CANCELED,results);}}
 }
+
 
 
