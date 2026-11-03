@@ -293,8 +293,8 @@ async def main():
     # A web-only restart must not revoke a separately hosted gateway's sessions.
     store.maintenance(startup=not is_postgres)
     bootstrap_password = os.environ.get('TPP_BOOTSTRAP_PASSWORD', '')
-    if bootstrap_password and not await database_call(store.has_admin):
-        store.bootstrap('admin', bootstrap_password)
+    if bootstrap_password and not await asyncio.to_thread(store.has_admin):
+        await asyncio.to_thread(store.bootstrap, 'admin', bootstrap_password)
     local_dev = os.environ.get('TPP_LOCAL_DEV') == '1'
     origin = os.environ.get('TPP_PUBLIC_ORIGIN') or os.environ.get('RENDER_EXTERNAL_URL', '')
     bind = os.environ.get('TPP_HTTP_BIND', '0.0.0.0' if os.environ.get('RENDER_EXTERNAL_URL') else '127.0.0.1')
