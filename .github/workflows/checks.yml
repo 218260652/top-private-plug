@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_pilot:
+        description: 'Publish a prerelease APK after owner approval (manual runs only)'
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: write
@@ -109,7 +115,7 @@ jobs:
           tar --exclude=.git --exclude=.local-signing --exclude='*.aar' --exclude='*.apk' --exclude='android/build' --exclude='android/ui-build' --exclude='ui-screenshots' --exclude='*.zip' --exclude='__pycache__' -czf /tmp/Top-private-Plug-rebuild-source.tar.gz .
           cp /tmp/Top-private-Plug-rebuild-source.tar.gz .
       - name: Publish verified pilot as a GitHub Release
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_pilot == true && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
