@@ -1,8 +1,10 @@
 package za.co.topprivateplug;
 
-/** Bounded transport recovery; authorization and certificate errors stay terminal. */
+/** Bounded backoff; transient outages can recover without a lifetime retry cap. */
 final class RetryPolicy {
-    static final int MAX_RETRIES = 5;
+    static final long STABLE_RESET_MILLIS = 60000L;
+    static int nextAttempt(int attempt) { return Math.min(30, Math.max(0, attempt)) + 1; }
+    static boolean stable(long connectedAt, long now) { return connectedAt > 0 && now - connectedAt >= STABLE_RESET_MILLIS; }
     static final class TransportFailure extends Exception {
         TransportFailure(String message) { super(message); }
     }

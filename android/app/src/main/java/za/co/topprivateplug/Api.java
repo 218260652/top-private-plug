@@ -57,7 +57,10 @@ final class Api {
             }
             int status = connection.getResponseCode();
             ConnectionReport.request(path, status, route!=null);
-            InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            // Proxy errors may contain HTML or no body. Preserve the HTTP status
+            // so transient failures remain retryable and denials remain terminal.
+            if (status < 200 || status >= 300) throw new HttpError(status, CustomerMessage.forStatus(status), authenticated);
+            InputStream stream = connection.getInputStream();
             if (stream == null) throw new Exception("The service did not return a response.");
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             try (InputStream input = stream) {
@@ -66,7 +69,6 @@ final class Api {
             }
             consumed=true;
             JSONObject result = new JSONObject(bytes.toString("UTF-8"));
-            if (status < 200 || status >= 300) throw new HttpError(status, CustomerMessage.forStatus(status), authenticated);
             return result;
         } catch (javax.net.ssl.SSLException error) {
             ConnectionReport.failure(path, error);
@@ -91,7 +93,7 @@ final class Api {
     }
     JSONObject activate(String code) throws Exception {
         JSONObject result = request("/v1/activate", proof("activate").put("code", code.trim()), false);
-        vault.token(result.getString("token")); return result.getJSONObject("account");
+        vault.activateToken(result.getString("token"),result.getJSONObject("account")); return result.getJSONObject("account");
     }
     JSONObject connect(String profile) throws Exception { return request("/v1/connect", proof("connect").put("profile_id", profile), true); }
     void prepareProfiles(org.json.JSONArray profiles) throws Exception { prepareProfiles(profiles,false); }

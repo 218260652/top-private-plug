@@ -36,6 +36,21 @@ class Limiter:
 def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True, gateway_enabled=False, profile_notifier=None):
     limiter = Limiter()
     public_origin = public_origin.rstrip('/')
+    database_slots = asyncio.Semaphore(4)
+
+    async def database_call(function, *args, **kwargs):
+        # Store opens each SQLite connection in the calling thread; PostgreSQL's
+        # pool is thread-safe. Keep the entire transaction on one worker thread.
+        async with database_slots:
+            operation = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+            try:
+                return await asyncio.shield(operation)
+            except asyncio.CancelledError:
+                # Cancelling an HTTP request cannot stop a DB thread. Keep its
+                # slot until the transaction completes instead of overfilling.
+                await operation
+                raise
+
 
     @web.middleware
     async def security(request, handler):
@@ -45,7 +60,7 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
                     if request.headers.get('Origin') != public_origin or request.headers.get('X-TPP-Request') != '1':
                         raise Fault('Request origin rejected', 403)
                 if request.path != '/admin/api/login':
-                    store.admin_auth(request.cookies.get('tpp_admin', ''))
+                    await database_call(store.admin_auth, request.cookies.get('tpp_admin', ''))
             if request.path.startswith('/v1/'):
                 # Many trial devices can share a NAT address. Bound each bearer
                 # separately while preserving an aggregate rate limit per IP.
@@ -97,112 +112,131 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
         return web.json_response({'status': 'ok', 'gateway_enabled': False, 'protocol': 'VLESS/Trojan/Xray', 'connection_method': 'imported-profile'})
 
     async def setup_status(request):
-        return web.json_response({'setup_required': not store.has_admin()})
+        return web.json_response({'setup_required': not await database_call(store.has_admin)})
 
     async def login(request):
         limiter.check(('login', peer(request)), 5, 300)
         data = await body(request)
-        cookie = store.login(data.get('username', ''), data.get('password', ''), data.get('otp', ''))
+        cookie = await database_call(store.login, data.get('username', ''), data.get('password', ''), data.get('otp', ''))
         response = web.json_response({'ok': True})
         response.set_cookie('tpp_admin', cookie, httponly=True, secure=secure_cookies, samesite='Strict', path='/admin', max_age=28800)
         return response
 
     async def logout(request):
-        store.logout(request.cookies.get('tpp_admin', ''))
+        await database_call(store.logout, request.cookies.get('tpp_admin', ''))
         response = web.json_response({'ok': True})
         response.del_cookie('tpp_admin', path='/admin')
         return response
 
     async def admin_state(request):
-        accounts = store.accounts()
-        return web.json_response({'accounts': accounts, 'profiles': [p for p in store.profiles() if p['engine'] == 'xray'], 'audit': store.audit_list(),
-                                  'connection_method': 'imported-profile', 'gateway_enabled': False, 'server_time': store.now()})
+        def read_state():
+            return {'accounts': store.accounts(), 'profiles': [p for p in store.profiles() if p['engine'] == 'xray'],
+                    'audit': store.audit_list(), 'connection_method': 'imported-profile',
+                    'gateway_enabled': False, 'server_time': store.now()}
+        return web.json_response(await database_call(read_state))
 
     async def issue(request):
         data = await body(request)
         selected = data.get('profile_ids')
         if not isinstance(selected, list) or not selected or any(not isinstance(pid, str) for pid in selected):
             raise Fault('Choose at least one imported connection profile')
-        if any(store.get_profile(pid).get('engine') != 'xray' for pid in selected):
-            raise Fault('Only imported connection profiles can be assigned')
-        return web.json_response(store.issue(data), status=201)
+        def issue_account():
+            if any(store.get_profile(pid).get('engine') != 'xray' for pid in selected):
+                raise Fault('Only imported connection profiles can be assigned')
+            return store.issue(data)
+        return web.json_response(await database_call(issue_account), status=201)
 
     async def account_update(request):
-        return web.json_response(store.update_account(request.match_info['id'], await body(request)))
+        return web.json_response(await database_call(store.update_account, request.match_info['id'], await body(request)))
 
     async def account_delete(request):
-        store.delete_account(request.match_info['id'])
+        await database_call(store.delete_account, request.match_info['id'])
         return web.json_response({'ok': True})
 
     async def profile_save(request):
         raise Fault('Manual server/SNI profiles have been removed. Import your unlocked connection JSON instead.', 410)
 
     async def xray_import(request):
-        return web.json_response(xray.save(store, await body(request), request.match_info.get('id'), notifier=profile_notifier))
+        return web.json_response(await database_call(xray.save, store, await body(request), request.match_info.get('id'), notifier=profile_notifier))
 
     async def xray_export(request):
         if await body(request):
             raise Fault('Export does not accept options')
-        exported = xray.export_profile(store, request.match_info['id'], notifier=profile_notifier)
+        exported = await database_call(xray.export_profile, store, request.match_info['id'], notifier=profile_notifier)
         return web.json_response(exported, headers={'Content-Disposition': 'attachment; filename="xray-profile.json"'})
 
     async def xray_toggle(request):
-        return web.json_response(xray.toggle(store, request.match_info['id'], await body(request)))
+        return web.json_response(await database_call(xray.toggle, store, request.match_info['id'], await body(request)))
 
     async def xray_disconnect(request):
-        return web.json_response(xray.disconnect(store, token(request), await body(request)))
+        return web.json_response(await database_call(xray.disconnect, store, token(request), await body(request)))
 
     async def xray_heartbeat(request):
-        return web.json_response(xray.heartbeat(store, token(request), await body(request)))
+        return web.json_response(await database_call(xray.heartbeat, store, token(request), await body(request)))
 
     async def challenge(request):
         limiter.check(('challenge', peer(request)), 300)
         data = await body(request)
-        return web.json_response(store.challenge(data.get('public_key', ''), data.get('purpose', '')))
+        return web.json_response(await database_call(store.challenge, data.get('public_key', ''), data.get('purpose', '')))
 
     async def activate(request):
         limiter.check(('activate', peer(request)), 150, 300)
-        return web.json_response(store.activate(await body(request)))
+        return web.json_response(await database_call(store.activate, await body(request)))
 
     async def status(request):
-        account = store.client_auth(token(request))
-        return web.json_response(store.account(account['id']))
+        access = token(request)
+        def read_status():
+            account = store.client_auth(access)
+            return store.account(account['id'])
+        return web.json_response(await database_call(read_status))
 
     async def profiles(request):
-        account = store.client_auth(token(request))
+        access = token(request)
         engines = request.headers.get('X-TPP-Engines', 'tpp').split(',')
-        return web.json_response({'profiles': [p for p in store.profiles() if p['id'] in json.loads(account['profiles']) and p['enabled'] and p['engine'] == 'xray' and 'xray' in engines]})
+        def read_profiles():
+            account = store.client_auth(access)
+            return {'profiles': [p for p in store.profiles() if p['id'] in json.loads(account['profiles'])
+                    and p['enabled'] and p['engine'] == 'xray' and 'xray' in engines]}
+        return web.json_response(await database_call(read_profiles))
 
     async def connect(request):
-        store.client_auth(token(request))
-        data = await body(request)
-        if not isinstance(data.get('profile_id'), str):
-            raise Fault('Choose an imported connection profile')
-        profile = store.get_profile(data['profile_id'])
-        if profile.get('engine') != 'xray':
-            raise Fault('Manual server/SNI connections have been removed. Ask your admin to assign an imported profile.', 410)
-        if profile.get('insecure_tls') and 'legacy-tls-test-v1' not in request.headers.get('X-TPP-Features', '').split(','):
-            raise Fault('This supplier test profile needs Top private Plug 0.1.5 or newer. Install the compatibility APK, then reconnect.', 426)
-        return web.json_response(xray.connect(store, token(request), data))
+        access, data = token(request), await body(request)
+        features = request.headers.get('X-TPP-Features', '').split(',')
+        def connect_account():
+            store.client_auth(access)
+            if not isinstance(data.get('profile_id'), str):
+                raise Fault('Choose an imported connection profile')
+            profile = store.get_profile(data['profile_id'])
+            if profile.get('engine') != 'xray':
+                raise Fault('Manual server/SNI connections have been removed. Ask your admin to assign an imported profile.', 410)
+            if profile.get('insecure_tls') and 'legacy-tls-test-v1' not in features:
+                raise Fault('This supplier test profile needs Top private Plug 0.1.5 or newer. Install the compatibility APK, then reconnect.', 426)
+            return xray.connect(store, access, data)
+        return web.json_response(await database_call(connect_account))
 
     async def usage(request):
-        account = store.client_auth(token(request))
+        access = token(request)
         hours = int(request.query.get('hours', '24'))
         if hours not in [1, 6, 24]:
             raise Fault('Choose 1, 6 or 24 hours')
-        return web.json_response({'points': store.usage(account['id'], hours)})
+        def read_usage():
+            account = store.client_auth(access)
+            return {'points': store.usage(account['id'], hours)}
+        return web.json_response(await database_call(read_usage))
 
     async def disconnect(request):
-        account = store.client_auth(token(request))
-        with store.db() as db:
-            if account['kind'] == 'trial':
-                # Disconnect only this trial device, not its 99 possible peers.
-                db.execute('DELETE FROM trial_xray_sessions WHERE account=? AND device_key=?',
-                           (account['id'], account['auth_device_key']))
-            else:
-                db.execute('DELETE FROM sessions WHERE account=?', (account['id'],))
-                db.execute('DELETE FROM tickets WHERE account=?', (account['id'],))
-                db.execute('DELETE FROM xray_sessions WHERE account=?', (account['id'],))
+        access = token(request)
+        def disconnect_account():
+            account = store.client_auth(access)
+            with store.db() as db:
+                if account['kind'] == 'trial':
+                    db.execute('DELETE FROM trial_xray_sessions WHERE account=? AND device_key=?',
+                               (account['id'], account['auth_device_key']))
+                else:
+                    db.execute('DELETE FROM sessions WHERE account=?', (account['id'],))
+                    db.execute('DELETE FROM tickets WHERE account=?', (account['id'],))
+                    db.execute('DELETE FROM xray_sessions WHERE account=?', (account['id'],))
+        await database_call(disconnect_account)
         return web.json_response({'ok': True})
 
     async def index(request):
@@ -259,8 +293,8 @@ async def main():
     # A web-only restart must not revoke a separately hosted gateway's sessions.
     store.maintenance(startup=not is_postgres)
     bootstrap_password = os.environ.get('TPP_BOOTSTRAP_PASSWORD', '')
-    if bootstrap_password and not store.has_admin():
-        store.bootstrap('admin', bootstrap_password)
+    if bootstrap_password and not await asyncio.to_thread(store.has_admin):
+        await asyncio.to_thread(store.bootstrap, 'admin', bootstrap_password)
     local_dev = os.environ.get('TPP_LOCAL_DEV') == '1'
     origin = os.environ.get('TPP_PUBLIC_ORIGIN') or os.environ.get('RENDER_EXTERNAL_URL', '')
     bind = os.environ.get('TPP_HTTP_BIND', '0.0.0.0' if os.environ.get('RENDER_EXTERNAL_URL') else '127.0.0.1')
@@ -278,7 +312,7 @@ async def main():
     try:
         while True:
             await asyncio.sleep(60)
-            store.maintenance()
+            await asyncio.to_thread(store.maintenance)
     finally:
         await runner.cleanup()
         store.close()
