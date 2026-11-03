@@ -70,7 +70,7 @@ public class ApiHarness {
 }
 class Vault {
  boolean saved,failSave;int writes;String origin="https://account.example";
- String endpoint(){return origin;}String token(){return "secret-token";}void token(String s){}
+ String endpoint(){return origin;}String token(){return "secret-token";}void token(String s){}void activateToken(String s,org.json.JSONObject a){}
  org.json.JSONObject bootstrap(String id){return saved?new org.json.JSONObject():null;}
  void bootstrap(String id,org.json.JSONObject result,String token,String origin)throws Exception{
   if(failSave)throw new java.io.IOException("fixture write failed");

@@ -93,7 +93,7 @@ final class Api {
     }
     JSONObject activate(String code) throws Exception {
         JSONObject result = request("/v1/activate", proof("activate").put("code", code.trim()), false);
-        vault.token(result.getString("token")); return result.getJSONObject("account");
+        vault.activateToken(result.getString("token"),result.getJSONObject("account")); return result.getJSONObject("account");
     }
     JSONObject connect(String profile) throws Exception { return request("/v1/connect", proof("connect").put("profile_id", profile), true); }
     void prepareProfiles(org.json.JSONArray profiles) throws Exception { prepareProfiles(profiles,false); }
