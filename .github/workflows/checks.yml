@@ -89,13 +89,13 @@ jobs:
         # Exercise real loopback sockets separately from the denied-socket parser test.
         run: |
           python tools/build_android.py --sdk "$ANDROID_HOME"
-      - name: Verify update identity against working 0.1.17 pilot
+      - name: Verify update identity against working 0.1.18 pilot
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh run download 41518020694 -n Top-private-Plug-pilot-67 -D /tmp/tpp-baseline
-          python tools/verify_update_identity.py /tmp/tpp-baseline/Top-private-Plug-0.1.17-pilot.apk Top-private-Plug-0.1.18-pilot.apk
+          gh run download 41567376708 -n Top-private-Plug-pilot-74 -D /tmp/tpp-baseline
+          python tools/verify_update_identity.py /tmp/tpp-baseline/Top-private-Plug-0.1.18-pilot.apk Top-private-Plug-0.1.19-pilot.apk
       - name: Capture and verify native phone interfaces
         run: |
           sudo chmod a+rw /dev/kvm
@@ -131,11 +131,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          tag="pilot-0.1.18-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          zip -j Top-private-Plug-0.1.18-pilot.zip Top-private-Plug-0.1.18-pilot.apk
-          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.18-ui-screenshots.zip > SHA256SUMS
-          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.18 pilot" --prerelease --notes "Fixes PostgreSQL usage refresh for active shared trials and tests 10 GB accounting without duplicate charging. Samples tunnel traffic every second and syncs counters every five seconds. Adds a black interface, clear stale-balance state and customer-safe messages without server credentials. Preserves MTN, Telkom and Cell C, account authorization and certificate checks. Physical-device carrier validation is still required."
-          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.18-ui-screenshots.zip SHA256SUMS
+          tag="pilot-0.1.19-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          zip -j Top-private-Plug-0.1.19-pilot.zip Top-private-Plug-0.1.19-pilot.apk
+          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.19-ui-screenshots.zip > SHA256SUMS
+          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.19 pilot" --prerelease --notes "Development stability pilot: credential-safe failure reports, transient recovery without a lifetime retry cap, backoff reset after 60 stable seconds, network-aware retry waiting, and faster recovery after confirmed session release. Backend database work runs outside the HTTP event loop. Expiry, data quotas, TLS verification and account revocation remain enforced. Physical-device carrier and screen-off tests remain required. No extended offline authorization or always-on support is enabled."
+          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.19-ui-screenshots.zip SHA256SUMS
           gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
         if: always()
@@ -146,7 +146,7 @@ jobs:
           path: |
             Top-private-Plug-*-pilot.apk
             Top-private-Plug-rebuild-source.tar.gz
-            Top-private-Plug-0.1.18-ui-screenshots.zip
+            Top-private-Plug-0.1.19-ui-screenshots.zip
             ui-screenshots/*.png
             update-compatibility.json
           if-no-files-found: error

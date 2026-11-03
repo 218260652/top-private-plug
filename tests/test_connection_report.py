@@ -35,7 +35,8 @@ public class ReportHarness {
         });
         pool.shutdown();check(pool.awaitTermination(5,TimeUnit.SECONDS));
         report=ConnectionReport.snapshot();
-        check(report.split("\\n").length==51);
+        check(report.split("\\n").length==52);
+        check(report.contains("Last failure: TCP_CONNECT"));
         check(!report.contains("DNS_LOOKUP")); // oldest entries evicted
         System.out.println("PASS: bounded, concurrent, credential-free diagnostics");
     }

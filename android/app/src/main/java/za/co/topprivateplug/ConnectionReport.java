@@ -8,11 +8,16 @@ final class ConnectionReport {
     enum Stage {
         START, NO_SAVED_PROFILE, SAVED_PROFILE_START, ACCOUNT_VIA_TUNNEL, ACCOUNT_CHALLENGE, DEVICE_PROOF, ACCOUNT_AUTHORIZATION,
         VPN_INTERFACE, NATIVE_START, TUNNEL_HTTPS, CONNECTED,
-        HEARTBEAT_RETRY, RECONNECT_SCHEDULED, RECONNECT_EXHAUSTED, CANCEL_OR_CLEANUP, CLEANUP_COMPLETE, WATCHDOG_TIMEOUT, ENGINE_LOAD_FAILED
+        NETWORK_AVAILABLE, NETWORK_LOST, NETWORK_WAIT, RECOVERY_STABLE, ANDROID_REVOKED, STOP_REQUESTED, HEARTBEAT_RETRY, RECONNECT_SCHEDULED, RECONNECT_EXHAUSTED, CANCEL_OR_CLEANUP, CLEANUP_COMPLETE, WATCHDOG_TIMEOUT, ENGINE_LOAD_FAILED
     }
     private static final ArrayDeque<String> events = new ArrayDeque<>();
+    private static String lastFailure = "None recorded";
     private static final long origin = System.nanoTime();
-    static synchronized void stage(Stage stage) { append(stage.name()); }
+    static synchronized void stage(Stage stage) {
+        if(stage == Stage.WATCHDOG_TIMEOUT || stage == Stage.ANDROID_REVOKED || stage == Stage.ENGINE_LOAD_FAILED)
+            lastFailure = stage.name();
+        append(stage.name());
+    }
     private static void append(String event) {
         if (events.size() == 48) events.removeFirst();
         events.addLast(String.format(Locale.ROOT, "+%.1fs %s", (System.nanoTime()-origin)/1e9, event));
@@ -25,10 +30,13 @@ final class ConnectionReport {
     }
     static synchronized void request(String path, int status) { request(path,status,false); }
     static synchronized void request(String path, int status, boolean tunnel) {
+        if(status >= 400)lastFailure = "ACCOUNT_HTTP_" + status + " " + route(path);
         append((tunnel?"TUNNEL_ACCOUNT ":"DIRECT_ACCOUNT ") + route(path) + (status == 0 ? " START" : " HTTP_" + status));
     }
     static synchronized void failure(String path, Throwable error) {
-        append("FAILED " + (path == null ? "tunnel stage" : route(path)) + " " + category(error));
+        String reason = category(error);
+        if(!reason.equals("OTHER_ERROR"))lastFailure = reason;
+        append("FAILED " + (path == null ? "tunnel stage" : route(path)) + " " + reason);
     }
     static String category(Throwable error) {
         for (int i=0; error != null && i<8; i++, error=error.getCause()) {
@@ -42,8 +50,9 @@ final class ConnectionReport {
         return "OTHER_ERROR";
     }
     static synchronized String snapshot() {
-        StringBuilder report = new StringBuilder("Top private Plug 0.1.17 pilot\nEvents since app launch (oldest first; last 48).\n");
+        StringBuilder report = new StringBuilder("Top private Plug safe connection diagnostics\nEvents since app launch (oldest first; last 48).\n");
         report.append("Saved-profile startup verifies the account through VLESS/Trojan before enabling the VPN.\n");
+        report.append("Last failure: ").append(lastFailure).append('\n');
         if (events.isEmpty()) report.append("No connection events yet. Retry the account check or connection first.\n");
         for (String event : events) report.append(event).append('\n');
         return report.toString();

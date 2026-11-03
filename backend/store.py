@@ -49,6 +49,9 @@ def totp_ok(secret, value, now):
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS profile_mail_outbox(id TEXT PRIMARY KEY, payload TEXT NOT NULL,
+ attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL, created INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS profile_mail_due ON profile_mail_outbox(next_attempt);
 CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY CHECK(id=1), username TEXT NOT NULL,
  password TEXT NOT NULL, totp TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS admin_sessions(hash TEXT PRIMARY KEY, expires INTEGER NOT NULL);
