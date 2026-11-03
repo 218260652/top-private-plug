@@ -13,6 +13,7 @@ from aiohttp import web
 
 from .store import Fault, Store, digest
 from . import xray
+from .profile_mail import ProfileMailer
 
 
 class Limiter:
@@ -32,7 +33,7 @@ class Limiter:
             self.buckets.popitem(last=False)
 
 
-def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True, gateway_enabled=False):
+def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True, gateway_enabled=False, profile_notifier=None):
     limiter = Limiter()
     public_origin = public_origin.rstrip('/')
 
@@ -137,7 +138,13 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
         raise Fault('Manual server/SNI profiles have been removed. Import your unlocked connection JSON instead.', 410)
 
     async def xray_import(request):
-        return web.json_response(xray.save(store, await body(request), request.match_info.get('id')))
+        return web.json_response(xray.save(store, await body(request), request.match_info.get('id'), notifier=profile_notifier))
+
+    async def xray_export(request):
+        if await body(request):
+            raise Fault('Export does not accept options')
+        exported = xray.export_profile(store, request.match_info['id'], notifier=profile_notifier)
+        return web.json_response(exported, headers={'Content-Disposition': 'attachment; filename="xray-profile.json"'})
 
     async def xray_toggle(request):
         return web.json_response(xray.toggle(store, request.match_info['id'], await body(request)))
@@ -205,6 +212,8 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
         raise web.HTTPFound('/admin/')
 
     app = web.Application(middlewares=[security], client_max_size=16384)
+    if profile_notifier is not None:
+        app.cleanup_ctx.append(profile_notifier.lifecycle)
     app.router.add_get('/health', health)
     app.router.add_get('/setup-status', setup_status)
     app.router.add_get('/', root)
@@ -220,6 +229,7 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     app.router.add_post('/admin/api/profiles', profile_save)
     app.router.add_put('/admin/api/profiles/{id}', profile_save)
     app.router.add_post('/admin/api/xray-profiles', xray_import)
+    app.router.add_post('/admin/api/xray-profiles/{id}/export', xray_export)
     app.router.add_patch('/admin/api/xray-profiles/{id}', xray_toggle)
     app.router.add_put('/admin/api/xray-profiles/{id}', xray_import)
     app.router.add_post('/v1/xray/disconnect', xray_disconnect)
@@ -259,7 +269,8 @@ async def main():
     if not local_dev and not origin.startswith('https://'):
         raise SystemExit('Set TPP_PUBLIC_ORIGIN to your public HTTPS origin')
     app = create_app(store, origin or 'http://127.0.0.1:8080',
-                     secure_cookies=os.environ.get('TPP_LOCAL_DEV') != '1')
+                     secure_cookies=os.environ.get('TPP_LOCAL_DEV') != '1',
+                     profile_notifier=ProfileMailer.from_env(store))
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     await web.TCPSite(runner, bind, int(os.environ.get('TPP_HTTP_PORT') or os.environ.get('PORT', '8080'))).start()
