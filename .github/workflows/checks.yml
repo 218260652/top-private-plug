@@ -115,6 +115,8 @@ jobs:
           adb shell settings put global window_animation_scale 0
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
+          adb shell pm disable-user --user 0 com.google.android.googlesdksetup
+          adb shell am force-stop com.google.android.googlesdksetup
           adb shell input keyevent 82
           python tools/verify_premium_ui.py
           adb emu kill

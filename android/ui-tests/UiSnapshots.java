@@ -12,7 +12,7 @@ public class UiSnapshots extends Instrumentation {
  MainActivity a;
  @Override public void onCreate(Bundle args){super.onCreate(args);start();}
  void main(Runnable r){runOnMainSync(r);}
- void shot(String name)throws Exception {Bundle progress=new Bundle();progress.putString("stream","Capturing "+name+"\n");sendStatus(0,progress);Thread.sleep(700);Bitmap image=getUiAutomation().takeScreenshot();if(image==null)throw new Exception("Screenshot unavailable");try(OutputStream out=new FileOutputStream(new File(a.getExternalFilesDir(null),name+".png"))){image.compress(Bitmap.CompressFormat.PNG,100,out);}image.recycle();}
+ void shot(String name)throws Exception {Bundle progress=new Bundle();progress.putString("stream","Capturing "+name+"\n");sendStatus(0,progress);Thread.sleep(700);android.view.accessibility.AccessibilityNodeInfo active=getUiAutomation().getRootInActiveWindow();if(active==null||!"za.co.topprivateplug".contentEquals(active.getPackageName()))throw new AssertionError("Screenshot covered by a system window");active.recycle();Bitmap image=getUiAutomation().takeScreenshot();if(image==null)throw new Exception("Screenshot unavailable");try(OutputStream out=new FileOutputStream(new File(a.getExternalFilesDir(null),name+".png"))){image.compress(Bitmap.CompressFormat.PNG,100,out);}image.recycle();}
  boolean hasLabel(View view,String label){if(view instanceof android.widget.TextView && label.contentEquals(((android.widget.TextView)view).getText()))return true;if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++)if(hasLabel(group.getChildAt(i),label))return true;}return false;}
  void assertStillHome(View view){
   if(view.getAnimation()!=null)throw new AssertionError("Home view is animated");
