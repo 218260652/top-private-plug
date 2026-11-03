@@ -97,7 +97,7 @@ jobs:
           gh run download 41670192607 -n Top-private-Plug-pilot-79 -D /tmp/tpp-baseline
           python tools/verify_update_identity.py /tmp/tpp-baseline/Top-private-Plug-0.1.19-pilot.apk Top-private-Plug-0.1.20-pilot.apk
       - name: Capture and verify native phone interfaces
-        timeout-minutes: 12
+        timeout-minutes: 25
         run: |
           sudo chmod a+rw /dev/kvm
           # Native compilation is complete; reclaim its disposable compiler cache.
@@ -107,7 +107,7 @@ jobs:
           export ANDROID_AVD_HOME="$RUNNER_TEMP/tpp-avd"
           mkdir -p "$ANDROID_AVD_HOME"
           echo "Installing emulator and Android 35 image"
-          timeout 300 sdkmanager 'emulator' 'system-images;android-35;google_apis;x86_64'
+          timeout 900 sdkmanager 'emulator' 'system-images;android-35;google_apis;x86_64'
           echo no | avdmanager create avd -n premium-ui -k 'system-images;android-35;google_apis;x86_64' --device pixel_6 -p "$ANDROID_AVD_HOME/premium-ui.avd"
           sed -i '/^disk.dataPartition.size=/d' "$ANDROID_AVD_HOME/premium-ui.avd/config.ini"
           echo 'disk.dataPartition.size=2048M' >> "$ANDROID_AVD_HOME/premium-ui.avd/config.ini"
