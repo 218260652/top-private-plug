@@ -156,7 +156,7 @@ class Store:
         # always issue a network-bound token and cannot omit this header.
         if bound and (carrier != bound['carrier'] or carrier != account['carrier']):
             raise Fault('Select the network assigned to this access code',422)
-        if carrier is not None and account['carrier'] and carrier != account['carrier']:
+        if carrier is not None and (account['carrier'] not in self.NETWORKS or carrier != account['carrier']):
             raise Fault('Select the network assigned to this access code',422)
         return account
 
