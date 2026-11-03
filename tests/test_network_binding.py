@@ -60,6 +60,11 @@ class NetworkBindingTests(unittest.TestCase):
         self.assertEqual(after['carrier'],'Telkom')
         for key in ['activated','expires','quota','used']:self.assertEqual(before[key],after[key])
         self.store.check_network(activated['token'],None)
+    def test_unassigned_legacy_tokens_require_admin_binding_in_updated_clients(self):
+        item=self.issue('MTN');activated=self.store.activate(dict(proof(self.store,self.private,self.public,'activate'),code=item['code']))
+        with self.store.db() as db:db.execute("UPDATE accounts SET carrier='' WHERE id=?",(item['account']['id'],))
+        self.store.check_network(activated['token'],None)  # existing older client
+        with self.assertRaises(Fault):self.store.check_network(activated['token'],'MTN')
     def test_profile_relabel_cannot_expand_an_existing_grant(self):
         item=self.issue('Cell C');result=self.activate(item,'Cell C')
         xray.save(self.store,dict(name='Changed',carrier='MTN',config=imported_config(),enabled=True),self.profiles['Cell C']['id'])
