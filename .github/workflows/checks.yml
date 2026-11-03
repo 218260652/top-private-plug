@@ -5,9 +5,16 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_pilot:
+        description: 'Publish prerelease only after explicit owner approval'
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: checks-${{ github.ref }}
@@ -82,6 +89,13 @@ jobs:
         # Exercise real loopback sockets separately from the denied-socket parser test.
         run: |
           python tools/build_android.py --sdk "$ANDROID_HOME"
+      - name: Verify update identity against working 0.1.18 pilot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh run download 41567376708 -n Top-private-Plug-pilot-74 -D /tmp/tpp-baseline
+          python tools/verify_update_identity.py /tmp/tpp-baseline/Top-private-Plug-0.1.18-pilot.apk Top-private-Plug-0.1.19-pilot.apk
       - name: Capture and verify native phone interfaces
         run: |
           sudo chmod a+rw /dev/kvm
@@ -101,6 +115,8 @@ jobs:
           adb shell settings put global window_animation_scale 0
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
+          adb shell pm disable-user --user 0 com.google.android.googlesdksetup
+          adb shell am force-stop com.google.android.googlesdksetup
           adb shell input keyevent 82
           python tools/verify_premium_ui.py
           adb emu kill
@@ -109,17 +125,17 @@ jobs:
           tar --exclude=.git --exclude=.local-signing --exclude='*.aar' --exclude='*.apk' --exclude='android/build' --exclude='android/ui-build' --exclude='ui-screenshots' --exclude='*.zip' --exclude='__pycache__' -czf /tmp/Top-private-Plug-rebuild-source.tar.gz .
           cp /tmp/Top-private-Plug-rebuild-source.tar.gz .
       - name: Publish verified pilot as a GitHub Release
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_pilot == true && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          tag="pilot-0.1.17-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          zip -j Top-private-Plug-0.1.17-pilot.zip Top-private-Plug-0.1.17-pilot.apk
-          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.17-ui-screenshots.zip > SHA256SUMS
-          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.17 pilot" --prerelease --notes "Fixes PostgreSQL usage refresh for active shared trials and tests 10 GB accounting without duplicate charging. Samples tunnel traffic every second and syncs counters every five seconds. Adds a black interface, clear stale-balance state and customer-safe messages without server credentials. Preserves MTN, Telkom and Cell C, account authorization and certificate checks. Physical-device carrier validation is still required."
-          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.17-ui-screenshots.zip SHA256SUMS
+          tag="pilot-0.1.19-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          zip -j Top-private-Plug-0.1.19-pilot.zip Top-private-Plug-0.1.19-pilot.apk
+          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.19-ui-screenshots.zip > SHA256SUMS
+          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.19 pilot" --prerelease --notes "Development stability pilot: credential-safe failure reports, transient recovery without a lifetime retry cap, backoff reset after 60 stable seconds, network-aware retry waiting, and faster recovery after confirmed session release. Backend database work runs outside the HTTP event loop. Expiry, data quotas, TLS verification and account revocation remain enforced. Physical-device carrier and screen-off tests remain required. No extended offline authorization or always-on support is enabled."
+          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.19-ui-screenshots.zip SHA256SUMS
           gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
         if: always()
@@ -130,10 +146,12 @@ jobs:
           path: |
             Top-private-Plug-*-pilot.apk
             Top-private-Plug-rebuild-source.tar.gz
-            Top-private-Plug-0.1.17-ui-screenshots.zip
+            Top-private-Plug-0.1.19-ui-screenshots.zip
             ui-screenshots/*.png
+            update-compatibility.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
+
 
 
 

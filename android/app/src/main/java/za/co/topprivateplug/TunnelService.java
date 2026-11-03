@@ -30,12 +30,40 @@ public final class TunnelService extends VpnService {
     private String xrayLease;
     private int controlPort;
     private volatile String phase = "Starting VPN service";
-    private volatile boolean reconnectAllowed, retryFailure, proxyFailure, retryPending, hadLease;
-    private int retryAttempt;
+    private volatile boolean reconnectAllowed, retryFailure, proxyFailure, retryPending, hadLease, leaseReleased;
+    private volatile int retryAttempt;
     private String activeProfile, accessToken, accountOrigin;
     private Runnable retryTask;
+    private android.net.ConnectivityManager connectivity;
+    private android.net.ConnectivityManager.NetworkCallback networkCallback;
+
+    boolean underlyingNetworkReady() { return NetworkState.available(this); }
+    @Override public void onCreate() {
+        super.onCreate();
+        connectivity = getSystemService(android.net.ConnectivityManager.class);
+        networkCallback = new android.net.ConnectivityManager.NetworkCallback() {
+            @Override public void onAvailable(android.net.Network network) {
+                ConnectionReport.stage(ConnectionReport.Stage.NETWORK_AVAILABLE);
+                // A previously authorized lease still needs the legacy cooldown.
+                // Never accelerate a proxy's rate-limit backoff.
+                if(retryPending && retryTask != null && (!hadLease || leaseReleased) && !proxyFailure) {
+                    main.removeCallbacks(retryTask); main.post(retryTask);
+                }
+            }
+            @Override public void onLost(android.net.Network network) {
+                ConnectionReport.stage(ConnectionReport.Stage.NETWORK_LOST);
+            }
+        };
+        try {
+            android.net.NetworkRequest request = new android.net.NetworkRequest.Builder()
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build();
+            connectivity.registerNetworkCallback(request, networkCallback, main);
+        } catch (RuntimeException unavailable) { networkCallback = null; }
+    }
 
     private void requestStop() {
+        ConnectionReport.stage(ConnectionReport.Stage.STOP_REQUESTED);
         reconnectAllowed = false;
         retryPending = false;
         if (retryTask != null) main.removeCallbacks(retryTask);
@@ -45,9 +73,9 @@ public final class TunnelService extends VpnService {
     private void beginAttempt() {
         if (!reconnectAllowed || VpnService.prepare(this) != null) { requestStop(); return; }
         running.set(true);
-        retryFailure = proxyFailure = hadLease = false;
+        retryFailure = proxyFailure = hadLease = leaseReleased = false;
         state = retryAttempt == 0 ? "Connecting" : "Reconnecting";
-        detail = retryAttempt == 0 ? "Starting VPN service…" : "Reconnecting (attempt " + retryAttempt + "/5)…";
+        detail = retryAttempt == 0 ? "Starting VPN service…" : "Reconnecting…";
         ConnectionReport.stage(ConnectionReport.Stage.START);
         showNotification(detail);
         worker = new Thread(() -> runTunnel(activeProfile), "tpp-tunnel");
@@ -60,28 +88,28 @@ public final class TunnelService extends VpnService {
         Vault vault = new Vault(this);
         boolean sameAccess = accessToken != null && !accessToken.isEmpty()
             && accessToken.equals(vault.token()) && accountOrigin.equals(vault.endpoint());
-        if (reconnectAllowed && retryFailure && sameAccess && retryAttempt < RetryPolicy.MAX_RETRIES) {
-            retryAttempt++;
-            long delay = RetryPolicy.delayMillis(retryAttempt, proxyFailure, hadLease);
+        if (reconnectAllowed && retryFailure && sameAccess) {
+            retryAttempt = RetryPolicy.nextAttempt(retryAttempt);
+            long delay = RetryPolicy.delayMillis(retryAttempt, proxyFailure, hadLease && !leaseReleased);
             state = "Reconnecting";
-            detail = "Connection interrupted. Reconnecting automatically (attempt " + retryAttempt + "/5). Tap Cancel to stop.";
+            detail = "Connection interrupted. Reconnecting automatically. Tap Cancel to stop.";
             retryPending = true;
             ConnectionReport.stage(ConnectionReport.Stage.RECONNECT_SCHEDULED);
             showNotification(detail);
             retryTask = () -> {
-                retryPending = false;
                 Vault current = new Vault(this);
                 if (!reconnectAllowed || !accessToken.equals(current.token()) || !accountOrigin.equals(current.endpoint())) {
                     requestStop(); return;
                 }
+                if(!underlyingNetworkReady()) {
+                    ConnectionReport.stage(ConnectionReport.Stage.NETWORK_WAIT);
+                    main.postDelayed(retryTask, 5000); return;
+                }
+                retryPending = false;
                 beginAttempt();
             };
             main.postDelayed(retryTask, delay);
             return;
-        }
-        if (reconnectAllowed && retryFailure && retryAttempt >= RetryPolicy.MAX_RETRIES) {
-            detail = "Could not restore the connection after five automatic retries. Tap Connect to try again or open Connection report.";
-            ConnectionReport.stage(ConnectionReport.Stage.RECONNECT_EXHAUSTED);
         }
         reconnectAllowed = false;
         stopping.set(true);
@@ -185,13 +213,17 @@ public final class TunnelService extends VpnService {
                 XrayEngine engine = xray;
                 int proxyStatus=engine==null?0:engine.upstreamStatus();
                 if(proxyStatus!=0){error=new ProxyFailure(proxyStatus);proxyFailure=true;}
+                if(error instanceof Api.HttpError && ((Api.HttpError)error).status == 429)proxyFailure=true;
                 retryFailure=RetryPolicy.transientFailure(error);
                 ConnectionReport.failure(null, error);
                 detail = error instanceof Api.HttpError ? CustomerMessage.forStatus(((Api.HttpError)error).status) : CustomerMessage.connection();
             }
         } finally {
             stopTunnel();
-            if (xrayLease != null) try { new Api(new Vault(this)).request("/v1/xray/disconnect", new JSONObject().put("lease", xrayLease), true); } catch (Exception ignored) {}
+            if (xrayLease != null) try {
+                JSONObject released = new Api(new Vault(this)).request("/v1/xray/disconnect", new JSONObject().put("lease", xrayLease), true);
+                leaseReleased = released.optBoolean("ok");
+            } catch (Exception ignored) {}
         }
     }
     private void runXray(Api api, JSONObject result) throws Exception {
@@ -253,6 +285,7 @@ public final class TunnelService extends VpnService {
                 // Failed heartbeats never extend the account authorization deadline.
                 leaseDeadline = android.os.SystemClock.elapsedRealtime() + 30000;
                 nextHeartbeat = android.os.SystemClock.elapsedRealtime() + 5000;
+                resetRetryAfterStableHeartbeat(android.os.SystemClock.elapsedRealtime());
             } catch (Exception error) {
                 if (!running.get()) break;
                 if (!RetryPolicy.transientFailure(error)) throw error;
@@ -264,6 +297,12 @@ public final class TunnelService extends VpnService {
             try { Thread.sleep(1000); } catch (InterruptedException ignored) { break; }
         }
         if (running.get()) throw new RetryPolicy.TransportFailure("The Xray engine stopped unexpectedly.");
+    }
+    private void resetRetryAfterStableHeartbeat(long now) {
+        if(retryAttempt > 0 && RetryPolicy.stable(connectedAt, now)) {
+            retryAttempt = 0;
+            ConnectionReport.stage(ConnectionReport.Stage.RECOVERY_STABLE);
+        }
     }
     private void closeTransport() {
         Api.clearTunnel();
@@ -297,8 +336,13 @@ public final class TunnelService extends VpnService {
             }
         }, "tpp-tunnel-cleanup").start();
     }
-    @Override public void onRevoke() { requestStop(); }
-    @Override public void onDestroy() { requestStop(); super.onDestroy(); }
+    @Override public void onRevoke() { ConnectionReport.stage(ConnectionReport.Stage.ANDROID_REVOKED); requestStop(); }
+    @Override public void onDestroy() {
+        if(connectivity != null && networkCallback != null) {
+            try { connectivity.unregisterNetworkCallback(networkCallback); } catch(RuntimeException ignored) {}
+        }
+        requestStop(); super.onDestroy();
+    }
 }
 
 

@@ -14,7 +14,13 @@ with zipfile.ZipFile(work/'test.apk','a') as z:
  for file in (work/'dex').glob('*.dex'):z.write(file,file.name)
 run(bt/'zipalign','-f','4',work/'test.apk',work/'aligned.apk')
 run(bt/'apksigner','sign','--ks',ROOT/'.local-signing/debug.keystore','--ks-pass','pass:android','--out',work/'signed.apk',work/'aligned.apk')
-adb=sdk/'platform-tools/adb';run(adb,'install','-r',ROOT/'Top-private-Plug-0.1.17-pilot.apk');run(adb,'install','-r',work/'signed.apk')
+adb=sdk/'platform-tools/adb'
+run(adb,'install','-r','/tmp/tpp-baseline/Top-private-Plug-0.1.18-pilot.apk')
+run(adb,'shell','run-as','za.co.topprivateplug','mkdir','-p','shared_prefs')
+import shlex
+probe='printf \'%s\' \'<map><string name="sentinel">keep-existing-data</string></map>\' > shared_prefs/update_probe.xml'
+run(adb,'shell','run-as','za.co.topprivateplug','sh','-c',shlex.quote(probe))
+run(adb,'install','-r',ROOT/'Top-private-Plug-0.1.19-pilot.apk');run(adb,'install','-r',work/'signed.apk')
 try:
  result=run(adb,'shell','am','instrument','-w','za.co.topprivateplug.uitest/za.co.topprivateplug.UiSnapshots',capture_output=True,text=True,timeout=180);print(result.stdout)
 except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
@@ -24,9 +30,13 @@ except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
  failed=ROOT/'ui-screenshots';failed.mkdir(exist_ok=True)
  subprocess.run([str(adb),'pull','/sdcard/Android/data/za.co.topprivateplug/files/.',str(failed)],check=False)
  raise
-if 'UI snapshots and logout checks passed' not in result.stdout:raise SystemExit('Native UI check failed')
+if 'UI snapshots and logout checks passed' not in result.stdout:
+ print('Native UI check failed; gathering emulator diagnostics', flush=True)
+ print(result.stdout, flush=True)
+ subprocess.run([str(adb),'logcat','-d','-t','500','-v','brief'],check=False)
+ raise SystemExit('Native UI check failed')
 shots=ROOT/'ui-screenshots';shots.mkdir(exist_ok=True);run(adb,'pull','/sdcard/Android/data/za.co.topprivateplug/files/.',shots)
-with zipfile.ZipFile(ROOT/'Top-private-Plug-0.1.17-ui-screenshots.zip','w',zipfile.ZIP_DEFLATED) as z:
+with zipfile.ZipFile(ROOT/'Top-private-Plug-0.1.19-ui-screenshots.zip','w',zipfile.ZIP_DEFLATED) as z:
  for image in sorted(shots.glob('*.png')):z.write(image,image.name)
 
 
