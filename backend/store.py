@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS accounts(id TEXT PRIMARY KEY, label TEXT NOT NULL, ki
  duration INTEGER NOT NULL, quota INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0,
  activated INTEGER, expires INTEGER, key TEXT, suspended INTEGER NOT NULL DEFAULT 0,
  deleted INTEGER NOT NULL DEFAULT 0, profiles TEXT NOT NULL, code_hash TEXT NOT NULL UNIQUE,
- created INTEGER NOT NULL, slot INTEGER);
+ created INTEGER NOT NULL, slot INTEGER, carrier TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS token_networks(hash TEXT PRIMARY KEY, carrier TEXT NOT NULL, expires INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS tokens(hash TEXT PRIMARY KEY, account TEXT NOT NULL REFERENCES accounts(id),
  expires INTEGER NOT NULL);
 -- A trial is one account and one shared quota, with up to 50 distinct public keys.
@@ -107,16 +108,57 @@ class Store:
                 db.execute('BEGIN IMMEDIATE')
                 db.executescript(schema_sql(SCHEMA))
                 db.execute('ALTER TABLE accounts ADD COLUMN IF NOT EXISTS slot BIGINT')
+                db.execute("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS carrier TEXT NOT NULL DEFAULT ''")
                 db.execute('CREATE UNIQUE INDEX IF NOT EXISTS account_slot ON accounts(slot)')
                 self._migrate_trial_devices(db)
+                self._migrate_carriers(db)
             return
         with self.db() as db:
             db.execute('PRAGMA journal_mode=WAL')
             db.executescript(SCHEMA)
             if 'slot' not in {r['name'] for r in db.execute('PRAGMA table_info(accounts)')}:
                 db.execute('ALTER TABLE accounts ADD COLUMN slot INTEGER')
+            if 'carrier' not in {r['name'] for r in db.execute('PRAGMA table_info(accounts)')}:
+                db.execute("ALTER TABLE accounts ADD COLUMN carrier TEXT NOT NULL DEFAULT ''")
             db.execute('CREATE UNIQUE INDEX IF NOT EXISTS account_slot ON accounts(slot)')
             self._migrate_trial_devices(db)
+            self._migrate_carriers(db)
+
+    NETWORKS = ('MTN', 'Cell C', 'Telkom')
+
+    @classmethod
+    def _migrate_carriers(cls, db):
+        # Infer only unambiguous legacy assignments. Any/mixed accounts need an
+        # explicit admin decision; never guess or alter quotas/activation times.
+        for account in db.execute("SELECT id,profiles FROM accounts WHERE carrier='' "):
+            names = {p['carrier'] for pid in json.loads(account['profiles'])
+                     for p in db.execute('SELECT carrier FROM profiles WHERE id=?', (pid,))
+                     if p['carrier'] in cls.NETWORKS}
+            if len(names) == 1:
+                db.execute('UPDATE accounts SET carrier=? WHERE id=?', (names.pop(), account['id']))
+
+    @classmethod
+    def validate_assignment(cls, db, profiles, carrier):
+        if carrier not in cls.NETWORKS:
+            raise Fault('Choose MTN, Cell C or Telkom', 422)
+        if not isinstance(profiles, list) or not 1 <= len(profiles) <= 20 or any(not isinstance(p,str) for p in profiles):
+            raise Fault('Assign at least one connection profile')
+        for pid in profiles:
+            row=db.execute('SELECT carrier,enabled FROM profiles WHERE id=?', (pid,)).fetchone()
+            if not row or not row['enabled'] or row['carrier'] not in (carrier,'Any'):
+                raise Fault('Assigned profiles must match the code network or be labelled Any', 422)
+
+    def check_network(self, token, carrier):
+        account=self.client_auth(token)
+        with self.db() as db:
+            bound=db.execute('SELECT carrier FROM token_networks WHERE hash=? AND expires>?',(digest(token),self.now())).fetchone()
+        # Legacy tokens remain usable by older installed apps. New activations
+        # always issue a network-bound token and cannot omit this header.
+        if bound and (carrier != bound['carrier'] or carrier != account['carrier']):
+            raise Fault('Select the network assigned to this access code',422)
+        if carrier is not None and account['carrier'] and carrier != account['carrier']:
+            raise Fault('Select the network assigned to this access code',422)
+        return account
 
     @staticmethod
     def _migrate_trial_devices(db):
@@ -251,11 +293,16 @@ class Store:
             raise Fault('Assign at least one connection profile')
         account_id, code = str(uuid.uuid4()), 'TPP-' + base64.b32encode(secrets.token_bytes(20)).decode()
         with self.db() as db:
+            carrier=data.get('carrier')
+            if carrier is None:
+                names={p['carrier'] for pid in profiles for p in db.execute('SELECT carrier FROM profiles WHERE id=?',(pid,)) if p['carrier'] in self.NETWORKS}
+                carrier=next(iter(names)) if len(names)==1 else ''
+            if carrier:self.validate_assignment(db,profiles,carrier)
             for profile in profiles:
                 if not db.execute('SELECT 1 FROM profiles WHERE id=? AND enabled=1', (profile,)).fetchone():
                     raise Fault('Assigned profiles must exist and be enabled')
-            db.execute('INSERT INTO accounts(id,label,kind,duration,quota,profiles,code_hash,created) VALUES(?,?,?,?,?,?,?,?)',
-                       (account_id, data['label'].strip(), data['kind'], data['duration_seconds'], data['quota_bytes'], json.dumps(profiles), digest(code), self.now()))
+            db.execute('INSERT INTO accounts(id,label,kind,duration,quota,profiles,code_hash,created,carrier) VALUES(?,?,?,?,?,?,?,?,?)',
+                       (account_id, data['label'].strip(), data['kind'], data['duration_seconds'], data['quota_bytes'], json.dumps(profiles), digest(code), self.now(), carrier))
             self.audit(db, 'code_created', account_id)
         return {'account': self.account(account_id), 'code': code}
 
@@ -336,7 +383,7 @@ class Store:
             raise Fault('Device verification failed', 401) from None
         db.execute('DELETE FROM challenges WHERE id=?', (row['id'],))
 
-    def activate(self, data):
+    def activate(self, data, require_network=False):
         code, key = data.get('code', ''), data.get('public_key', '')
         if not isinstance(code, str) or len(code) > 150:
             raise Fault('Invalid access code')
@@ -346,6 +393,11 @@ class Store:
             row = db.execute('SELECT * FROM accounts WHERE code_hash=?', (digest(code.strip().upper()),)).fetchone()
             if not row or row['deleted'] or row['suspended']:
                 raise Fault('Code is invalid or disabled', 403)
+            selected=data.get('carrier')
+            if require_network or selected is not None:
+                if selected not in self.NETWORKS or not row['carrier'] or selected != row['carrier']:
+                    raise Fault('Select the network assigned to this access code',422)
+                self.validate_assignment(db,json.loads(row['profiles']),row['carrier'])
             if row['kind'] == 'trial':
                 # The original trial clock and quota belong to the one account,
                 # not to each device. Re-activation must not restart the clock.
@@ -382,6 +434,8 @@ class Store:
                 token = secrets.token_urlsafe(32)
                 db.execute('DELETE FROM tokens WHERE account=?', (row['id'],))
                 db.execute('INSERT INTO tokens VALUES(?,?,?)', (digest(token), row['id'], self.now() + 90 * 86400))
+            if require_network or selected is not None:
+                db.execute('INSERT INTO token_networks(hash,carrier,expires) VALUES(?,?,?)',(digest(token),row['carrier'],self.now()+90*86400))
             account_id = row['id']
         return {'token': token, 'account': self.account(account_id)}
 
@@ -488,7 +542,7 @@ class Store:
             db.execute('DELETE FROM sessions WHERE id=?', (session_id,))
 
     def update_account(self, account_id, data):
-        allowed = {'label', 'suspended', 'quota_bytes', 'duration_seconds', 'extend_seconds', 'reset_device'}
+        allowed = {'label', 'suspended', 'quota_bytes', 'duration_seconds', 'extend_seconds', 'reset_device', 'carrier', 'profile_ids'}
         if not data or set(data) - allowed:
             raise Fault('Unknown or empty account update')
         with self.db() as db:
@@ -496,6 +550,12 @@ class Store:
             row = db.execute('SELECT * FROM accounts WHERE id=? AND deleted=0', (account_id,)).fetchone()
             if not row:
                 raise Fault('Account not found', 404)
+            if 'carrier' in data or 'profile_ids' in data:
+                carrier=data.get('carrier',row['carrier'])
+                assigned=data.get('profile_ids',json.loads(row['profiles']))
+                self.validate_assignment(db,assigned,carrier)
+                db.execute('UPDATE accounts SET carrier=?,profiles=? WHERE id=?',(carrier,json.dumps(assigned),account_id))
+                db.execute('DELETE FROM tickets WHERE account=?',(account_id,))
             if 'label' in data:
                 if not isinstance(data['label'], str) or not 1 <= len(data['label'].strip()) <= 100:
                     raise Fault('Invalid account label')
@@ -559,7 +619,7 @@ class Store:
             if startup:
                 db.execute('DELETE FROM sessions')
                 db.execute('DELETE FROM tickets')
-            for table in ['tokens', 'trial_tokens', 'tickets', 'challenges', 'admin_sessions']:
+            for table in ['tokens', 'trial_tokens', 'token_networks', 'tickets', 'challenges', 'admin_sessions']:
                 db.execute(f'DELETE FROM {table} WHERE expires<=?', (self.now(),))
             db.execute('DELETE FROM usage WHERE at<?', (self.now() - 31 * 86400,))
 

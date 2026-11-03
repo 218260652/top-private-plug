@@ -236,7 +236,7 @@ def connect(store, token, data):
         device_key = account['auth_device_key']
         store.proof(db, data, device_key, 'connect')
         p = db.execute('SELECT * FROM profiles WHERE id=? AND enabled=1', (data.get('profile_id', ''),)).fetchone()
-        if not p or p['id'] not in json.loads(row['profiles']):
+        if not p or p['id'] not in json.loads(row['profiles']) or (row['carrier'] and p['carrier'] not in (row['carrier'],'Any')):
             raise Fault('This connection profile is unavailable', 403)
         x = db.execute('SELECT config,insecure FROM xray_profiles WHERE profile=?', (p['id'],)).fetchone()
         if not x:
@@ -287,7 +287,7 @@ def heartbeat(store, token, data):
         if not session or session['seen'] <= store.now()-30:
             raise Fault('Connection lease expired; reconnect', 403)
         p = db.execute('SELECT * FROM profiles WHERE id=?', (session['profile'],)).fetchone()
-        if not p or not p['enabled'] or p['version'] != session['version'] or p['id'] not in json.loads(row['profiles']):
+        if not p or not p['enabled'] or p['version'] != session['version'] or p['id'] not in json.loads(row['profiles']) or (row['carrier'] and p['carrier'] not in (row['carrier'],'Any')):
             raise Fault('Profile changed; reconnect', 403)
         if up < session['up'] or down < session['down']:
             raise Fault('Byte counters must not decrease')

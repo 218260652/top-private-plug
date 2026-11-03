@@ -46,6 +46,7 @@ final class Api {
         connection.setRequestProperty("X-TPP-Engines", "xray");
         connection.setRequestProperty("X-TPP-Features", "legacy-tls-test-v1");
         if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + vault.token());
+        connection.setRequestProperty("X-TPP-Network", vault.network());
         ConnectionReport.request(path, 0, route!=null);
         boolean consumed=false;
         try {
@@ -91,13 +92,20 @@ final class Api {
         return new JSONObject().put("public_key", publicKey).put("challenge_id", challenge.getString("id"))
             .put("signature", DeviceKey.sign(challenge.getString("message")));
     }
+    void requireNetworkBinding() throws Exception {
+        if(request("/health",null,false).optInt("network_binding_version",0)<1)
+            throw new HttpError(428,"Update the admin service before activating network-bound codes.",false);
+    }
     JSONObject activate(String code) throws Exception {
-        JSONObject result = request("/v1/activate", proof("activate").put("code", code.trim()), false);
+        requireNetworkBinding();
+        JSONObject result = request("/v1/activate", proof("activate").put("code", code.trim()).put("carrier",vault.network()), false);
+        if(!vault.network().equals(result.getJSONObject("account").optString("carrier")))throw new HttpError(422,"Wrong activation network",false);
         vault.activateToken(result.getString("token"),result.getJSONObject("account")); return result.getJSONObject("account");
     }
-    JSONObject connect(String profile) throws Exception { return request("/v1/connect", proof("connect").put("profile_id", profile), true); }
+    JSONObject connect(String profile) throws Exception { requireNetworkBinding();return request("/v1/connect", proof("connect").put("profile_id", profile), true); }
     void prepareProfiles(org.json.JSONArray profiles) throws Exception { prepareProfiles(profiles,false); }
     void prepareProfiles(org.json.JSONArray profiles, boolean replace) throws Exception {
+        requireNetworkBinding();
         final String accessToken=vault.token(), origin=vault.endpoint();
         for(int i=0;i<profiles.length();i++) {
             JSONObject profile=profiles.getJSONObject(i);
@@ -117,6 +125,7 @@ final class Api {
         }
     }
     JSONObject connect(String profile, Progress progress) throws Exception {
+        requireNetworkBinding();
         String accessToken=vault.token(), origin=vault.endpoint();
         JSONObject data = proof("connect", progress).put("profile_id", profile);
         progress.stage("Authorizing account and downloading the connection profile");

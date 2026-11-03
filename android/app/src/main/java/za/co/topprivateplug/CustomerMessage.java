@@ -6,6 +6,8 @@ final class CustomerMessage {
         switch(status) {
             case 401: return "Please activate your access again.";
             case 403: return "Your access needs attention. Check your plan or contact support.";
+            case 422: return "This code belongs to a different network. Select the network assigned by your admin.";
+            case 428: return "Your admin service needs its network-binding update before this code can be activated.";
             case 409: return "This request conflicts with existing access or a connection. Check your code, or disconnect and retry.";
             case 426: return "Please install the latest Top private Plug update.";
             case 429: return "Please wait a moment before trying again.";

@@ -107,10 +107,25 @@ class PostgresMailTests(MailTests):
         self.store.close()
 
 
+from tests.test_network_binding import NetworkBindingTests
+class PostgresNetworkBindingTests(NetworkBindingTests):
+    def new_store(self):return Store(dsn,schema=schema)
+    def setUp(self):
+        import tempfile
+        from backend import xray
+        from tests.test_api import imported_config
+        self.tmp=tempfile.TemporaryDirectory();self.path=dsn;self.store=self.new_store()
+        with self.store.db() as db:
+            db.execute('TRUNCATE profile_mail_outbox,admins,admin_sessions,token_networks,profiles,accounts,tokens,trial_tokens,trial_devices,trial_xray_sessions,xray_sessions,challenges,tickets,sessions,usage,audit RESTART IDENTITY CASCADE')
+        self.private,self.public=device()
+        self.profiles={n:xray.save(self.store,dict(name=n,carrier=n,config=imported_config(),enabled=True)) for n in Store.NETWORKS}
+
+
 try:
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PostgresControlTests)
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(PostgresXrayTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(PostgresMailTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(PostgresNetworkBindingTests))
     result = unittest.TextTestRunner(verbosity=1).run(suite)
 finally:
     with psycopg.connect(dsn, autocommit=True) as connection:
