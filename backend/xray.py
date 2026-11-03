@@ -197,7 +197,7 @@ def metadata(db, profiles):
     return profiles
 
 
-def save(store, data, profile_id=None):
+def save(store, data, profile_id=None, notifier=None):
     allow = data.get('allow_insecure', False)
     if type(allow) is not bool or type(data.get('enabled', True)) is not bool:
         raise Fault('Testing and enabled options must be boolean')
@@ -219,6 +219,11 @@ def save(store, data, profile_id=None):
                 (profile_id, name.strip(), carrier, address, server_port, sni, '1.2', int(data.get('enabled', True))))
             db.execute('INSERT INTO xray_profiles(profile,config,insecure) VALUES(?,?,?)', (profile_id, json.dumps(config), int(insecure)))
         store.audit(db, 'xray_profile_imported', profile_id)
+        if notifier is not None:
+            profile = dict(db.execute('SELECT * FROM profiles WHERE id=?', (profile_id,)).fetchone())
+            document = export_document(profile, config)
+            document['source_config'] = json.loads(data['config']) if isinstance(data['config'], str) else data['config']
+            notifier.enqueue(db, 'import', document)
     return store.get_profile(profile_id)
 
 
@@ -340,3 +345,40 @@ def toggle(store, profile_id, data):
 
 
 
+
+
+def export_document(profile, config):
+    """Owner backup; this document is never returned in ordinary admin state."""
+    from urllib.parse import quote, urlencode
+    result = {key: profile[key] for key in ('id', 'name', 'carrier', 'enabled', 'version')}
+    result['config'] = config
+    outbound = next(o for o in config['outbounds'] if o['protocol'] in ('vless', 'trojan'))
+    if outbound['protocol'] == 'vless':
+        server = outbound['settings']['vnext'][0]
+        stream = outbound['streamSettings']; tls = stream['tlsSettings']
+        query = {'encryption': 'none', 'security': 'tls', 'type': stream['network'], 'sni': tls['serverName']}
+        if tls.get('fingerprint'): query['fp'] = tls['fingerprint']
+        if tls.get('allowInsecure'): query['allowInsecure'] = '1'
+        if stream['network'] == 'ws':
+            ws = stream['wsSettings']; query['path'] = ws['path']
+            for key, value in ws.get('headers', {}).items():
+                if key.lower() == 'host': query['host'] = value
+        address = server['address']
+        if ':' in address: address = '[' + address + ']'
+        result['vless_uri'] = ('vless://' + quote(server['users'][0]['id'], safe='') + '@' + address +
+                               ':' + str(server['port']) + '?' + urlencode(query) + '#' + quote(profile['name'], safe=''))
+    return result
+
+
+def export_profile(store, profile_id, notifier=None):
+    with store.db() as db:
+        db.execute('BEGIN IMMEDIATE')
+        profile = db.execute('SELECT * FROM profiles WHERE id=?', (profile_id,)).fetchone()
+        imported = db.execute('SELECT config FROM xray_profiles WHERE profile=?', (profile_id,)).fetchone()
+        if not profile or not imported:
+            raise Fault('Imported profile not found', 404)
+        document = export_document(dict(profile), json.loads(imported['config']))
+        store.audit(db, 'xray_profile_exported', profile_id)
+        if notifier is not None:
+            notifier.enqueue(db, 'export', document)
+    return document

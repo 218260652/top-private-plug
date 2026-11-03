@@ -88,9 +88,29 @@ class PostgresXrayTests(XrayTests):
         self.assertEqual(self.store.account(self.account)['used'], 10_000_000_000)
 
 
+from tests.test_profile_mail import MailTests
+from backend.profile_mail import ProfileMailer
+from cryptography.fernet import Fernet
+
+
+class PostgresMailTests(MailTests):
+    async def asyncSetUp(self):
+        self.path, self.schema = dsn, schema
+        self.clock = [1_800_000_000]
+        self.store = self.open_store()
+        with self.store.db() as db:
+            db.execute('TRUNCATE profile_mail_outbox,profiles CASCADE')
+        self.key = Fernet.generate_key()
+        self.mail = ProfileMailer(self.store, self.key, 'owner@example.com', 'sender@example.com', 'test-api-key')
+
+    async def asyncTearDown(self):
+        self.store.close()
+
+
 try:
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PostgresControlTests)
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(PostgresXrayTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(PostgresMailTests))
     result = unittest.TextTestRunner(verbosity=1).run(suite)
 finally:
     with psycopg.connect(dsn, autocommit=True) as connection:
