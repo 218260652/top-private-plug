@@ -198,6 +198,9 @@ def metadata(db, profiles):
 
 
 def save(store, data, profile_id=None, notifier=None):
+    access = data.get('access')
+    if 'access' in data and (profile_id or not isinstance(access, dict)):
+        raise Fault('Access codes can only be issued with a new import')
     allow = data.get('allow_insecure', False)
     if type(allow) is not bool or type(data.get('enabled', True)) is not bool:
         raise Fault('Testing and enabled options must be boolean')
@@ -205,6 +208,8 @@ def save(store, data, profile_id=None, notifier=None):
     name, carrier = data.get('name', ''), data.get('carrier')
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80 or carrier not in ['MTN', 'Telkom', 'Cell C', 'Any']:
         raise Fault('Provide a profile name and network label')
+    if access is not None and (carrier not in store.NETWORKS or not data.get('enabled', True)):
+        raise Fault('Choose MTN, Telkom or Cell C and enable the profile to issue a code')
     with store.db() as db:
         db.execute('BEGIN IMMEDIATE')
         if profile_id:
@@ -219,12 +224,19 @@ def save(store, data, profile_id=None, notifier=None):
                 (profile_id, name.strip(), carrier, address, server_port, sni, '1.2', int(data.get('enabled', True))))
             db.execute('INSERT INTO xray_profiles(profile,config,insecure) VALUES(?,?,?)', (profile_id, json.dumps(config), int(insecure)))
         store.audit(db, 'xray_profile_imported', profile_id)
+        if access is not None:
+            issued = store.issue({
+                'label': name, 'carrier': carrier, 'profile_ids': [profile_id],
+                'kind': access.get('kind'), 'duration_seconds': access.get('duration_seconds'),
+                'quota_bytes': access.get('quota_bytes'),
+            }, connection=db)
         if notifier is not None:
             profile = dict(db.execute('SELECT * FROM profiles WHERE id=?', (profile_id,)).fetchone())
             document = export_document(profile, config)
             document['source_config'] = json.loads(data['config']) if isinstance(data['config'], str) else data['config']
             notifier.enqueue(db, 'import', document)
-    return store.get_profile(profile_id)
+        profile = metadata(db, [dict(db.execute('SELECT * FROM profiles WHERE id=?', (profile_id,)).fetchone())])[0]
+    return {'profile': profile, **issued} if access is not None else profile
 
 
 def connect(store, token, data):
@@ -382,3 +394,4 @@ def export_profile(store, profile_id, notifier=None):
         if notifier is not None:
             notifier.enqueue(db, 'export', document)
     return document
+

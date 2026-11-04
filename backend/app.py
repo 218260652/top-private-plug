@@ -143,6 +143,12 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     async def xray_import(request):
         return web.json_response(xray.save(store, await body(request), request.match_info.get('id'), notifier=profile_notifier))
 
+    async def import_with_access(request):
+        data = await body(request)
+        if not isinstance(data.get('access'), dict):
+            raise Fault('Provide the activation code limits')
+        return web.json_response(xray.save(store, data, notifier=profile_notifier), status=201)
+
     async def xray_export(request):
         if await body(request):
             raise Fault('Export does not accept options')
@@ -233,6 +239,7 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     app.router.add_post('/admin/api/profiles', profile_save)
     app.router.add_put('/admin/api/profiles/{id}', profile_save)
     app.router.add_post('/admin/api/xray-profiles', xray_import)
+    app.router.add_post('/admin/api/xray-profiles/import-with-access', import_with_access)
     app.router.add_post('/admin/api/xray-profiles/{id}/export', xray_export)
     app.router.add_patch('/admin/api/xray-profiles/{id}', xray_toggle)
     app.router.add_put('/admin/api/xray-profiles/{id}', xray_import)
@@ -290,6 +297,7 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+
 
 
 
