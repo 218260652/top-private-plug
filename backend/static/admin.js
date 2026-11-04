@@ -87,7 +87,7 @@ function renderAccounts() {
     : `<button data-account="${escape(a.id)}" data-access-state="paused">Pause</button><button data-account="${escape(a.id)}" data-access-state="suspended">Suspend</button>`}<button class="danger" data-delete="${escape(a.id)}">Delete</button></div></div>`).join('') || '<p class="muted">No matching accounts.</p>';
   document.querySelectorAll('[data-width]').forEach(el=>el.style.width=el.dataset.width+'%');
 }
-function busy(form, run) { const buttons = [...form.querySelectorAll('button')]; buttons.forEach(b=>b.disabled=true); return run().catch(e=>notice(e.message)).finally(()=>buttons.forEach(b=>b.disabled=false)); }
+function busy(form, run, onError = error => notice(error.message)) { const buttons = [...form.querySelectorAll('button')]; buttons.forEach(b=>b.disabled=true); return run().catch(onError).finally(()=>buttons.forEach(b=>b.disabled=false)); }
 $('login-form').addEventListener('submit', e=>{e.preventDefault();const f=e.target;busy(f,async()=>{await api('login','POST',Object.fromEntries(new FormData(f)));f.reset();$('notice').hidden=true;await refresh();});});
 const editForm = $('edit-form');
 function showAssignedProfiles(carrier, assigned = []) {
@@ -98,9 +98,11 @@ function showAssignedProfiles(carrier, assigned = []) {
     || '<p class="muted">No profiles for this network.</p>';
 }
 editForm.elements.carrier.onchange = () => showAssignedProfiles(editForm.elements.carrier.value);
+const editError = $('edit-error');
 $('edit-cancel').onclick = () => $('edit-dialog').close();
 editForm.addEventListener('submit', e => {
   e.preventDefault();
+  editError.hidden = true;
   busy(editForm, async () => {
     const data = new FormData(editForm);
     const account = state.accounts.find(a => a.id === data.get('id'));
@@ -123,10 +125,15 @@ editForm.addEventListener('submit', e => {
     if (data.has('reset_device')) changes.reset_device = true;
     if (Object.keys(changes).length) {
       await api('accounts/' + account.id, 'PATCH', changes);
-      await refresh();
-      notice(changes.extend_seconds ? 'Account renewed.' : 'Account updated.');
     }
     $('edit-dialog').close();
+    if (Object.keys(changes).length) {
+      notice(changes.extend_seconds ? 'Account renewed.' : 'Account updated.');
+      await refresh().catch(() => notice('Changes saved. Retry to refresh the account list.', true));
+    }
+  }, error => {
+    editError.textContent = error.message;
+    editError.hidden = false;
   });
 });
 $('copy-code').onclick=()=>navigator.clipboard.writeText($('code-value').textContent).then(()=>notice('Code copied.')).catch(()=>notice('Select and copy the code manually.'));
@@ -140,6 +147,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
  if(b.dataset.editAccount){
    const account = state.accounts.find(a => a.id === b.dataset.editAccount);
    editForm.reset();
+   editError.hidden = true;
    editForm.elements.id.value = account.id;
    editForm.elements.label.value = account.label;
    editForm.elements.carrier.value = account.carrier || '';
