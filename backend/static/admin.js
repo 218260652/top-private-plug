@@ -80,15 +80,55 @@ function render() {
 }
 function renderAccounts() {
   const query = $('search').value.toLowerCase();
-  const active = $('account-status').value === 'active';
-  $('account-list').innerHTML = state.accounts.filter(a => (a.status === 'active') === active &&
-    (a.label.toLowerCase().includes(query) || a.id.toLowerCase().includes(query))).map(a=>`<div class="account-row"><div class="row-top"><strong>${escape(a.label)}</strong><span class="tag ${escape(a.status)}">${escape(a.status)}</span></div><p>${a.online && active?'● Online · ':''}${a.kind==='trial'?'Free trial · '+a.device_count+'/50 devices · shared data':'Paid access · 1 device'} · ${Math.round(a.duration/3600*10)/10} hours · ${gb(a.used)} used / ${gb(a.quota)}</p><p>Code network: ${escape(a.carrier||'Needs admin assignment')}</p><p>Reference: ${escape(a.id)}</p><div class="meter"><div data-width="${Math.min(100,a.used/a.quota*100)}"></div></div><p>Expires: ${escape(date(a.expires))}</p><div class="row-actions">${a.suspended
+  const filter = $('account-status').value;
+  $('account-list').innerHTML = state.accounts.filter(a => (filter === 'all' || (a.status === 'active') === (filter === 'active')) &&
+    (a.label.toLowerCase().includes(query) || a.id.toLowerCase().includes(query))).map(a=>`<div class="account-row"><div class="row-top"><strong>${escape(a.label)}</strong><span class="tag ${escape(a.status)}">${a.status === 'active' ? 'Active' : 'Inactive · ' + escape(a.status)}</span></div><p>${a.online && a.status === 'active'?'● Online · ':''}${a.kind==='trial'?'Free trial · '+a.device_count+'/50 devices · shared data':'Paid access · 1 device'} · ${Math.round(a.duration/3600*10)/10} hours · ${gb(a.used)} used / ${gb(a.quota)}</p><p>Code network: ${escape(a.carrier||'Needs admin assignment')}</p><p>Reference: ${escape(a.id)}</p><div class="meter"><div data-width="${Math.min(100,a.used/a.quota*100)}"></div></div><p>Expires: ${escape(date(a.expires))}</p><div class="row-actions"><button data-edit-account="${escape(a.id)}">Edit / Renew</button>${a.suspended
     ? `<button data-account="${escape(a.id)}" data-access-state="enabled">Resume</button>`
     : `<button data-account="${escape(a.id)}" data-access-state="paused">Pause</button><button data-account="${escape(a.id)}" data-access-state="suspended">Suspend</button>`}<button class="danger" data-delete="${escape(a.id)}">Delete</button></div></div>`).join('') || '<p class="muted">No matching accounts.</p>';
   document.querySelectorAll('[data-width]').forEach(el=>el.style.width=el.dataset.width+'%');
 }
 function busy(form, run) { const buttons = [...form.querySelectorAll('button')]; buttons.forEach(b=>b.disabled=true); return run().catch(e=>notice(e.message)).finally(()=>buttons.forEach(b=>b.disabled=false)); }
 $('login-form').addEventListener('submit', e=>{e.preventDefault();const f=e.target;busy(f,async()=>{await api('login','POST',Object.fromEntries(new FormData(f)));f.reset();$('notice').hidden=true;await refresh();});});
+const editForm = $('edit-form');
+function showAssignedProfiles(carrier, assigned = []) {
+  $('edit-profile-choices').innerHTML = state.profiles.filter(p =>
+    assigned.includes(p.id) || (p.enabled && (p.carrier === carrier || p.carrier === 'Any'))
+  ).map(p => `<label class="check"><input type="checkbox" name="edit_profile_ids"
+    value="${escape(p.id)}" ${assigned.includes(p.id) ? 'checked' : ''}>${escape(p.name)} · ${escape(p.carrier)}</label>`).join('')
+    || '<p class="muted">No profiles for this network.</p>';
+}
+editForm.elements.carrier.onchange = () => showAssignedProfiles(editForm.elements.carrier.value);
+$('edit-cancel').onclick = () => $('edit-dialog').close();
+editForm.addEventListener('submit', e => {
+  e.preventDefault();
+  busy(editForm, async () => {
+    const data = new FormData(editForm);
+    const account = state.accounts.find(a => a.id === data.get('id'));
+    if (!account) throw Error('This account is no longer available.');
+    const changes = {};
+    const label = data.get('label').trim();
+    const quota = Math.round(Number(data.get('quota')) * 1e9);
+    const duration = Math.round(Number(data.get('duration_hours')) * 3600);
+    const carrier = data.get('carrier');
+    const profiles = data.getAll('edit_profile_ids');
+    if (label !== account.label) changes.label = label;
+    if (quota !== account.quota) changes.quota_bytes = quota;
+    if (duration !== account.duration) changes.duration_seconds = duration;
+    if (carrier !== (account.carrier || '') || profiles.length !== account.profile_ids.length ||
+        profiles.some(id => !account.profile_ids.includes(id))) {
+      changes.carrier = carrier;
+      changes.profile_ids = profiles;
+    }
+    if (Number(data.get('days')) > 0) changes.extend_seconds = Number(data.get('days')) * 86400;
+    if (data.has('reset_device')) changes.reset_device = true;
+    if (Object.keys(changes).length) {
+      await api('accounts/' + account.id, 'PATCH', changes);
+      await refresh();
+      notice(changes.extend_seconds ? 'Account renewed.' : 'Account updated.');
+    }
+    $('edit-dialog').close();
+  });
+});
 $('copy-code').onclick=()=>navigator.clipboard.writeText($('code-value').textContent).then(()=>notice('Code copied.')).catch(()=>notice('Select and copy the code manually.'));
 $('search').oninput=renderAccounts;
 $('account-status').onchange=renderAccounts;
@@ -97,6 +137,17 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
  if(b.dataset.view)view(b.dataset.view);
  if(b.dataset.editProfile){const p=state.profiles.find(p=>p.id===b.dataset.editProfile),f=$('xray-form');f.reset();f.elements.id.value=p.id;f.elements.name.value=p.name;setImportMode(p);f.elements.carrier.value=p.carrier;f.elements.enabled.checked=!!p.enabled;f.elements.allow_insecure.checked=!!p.insecure_tls;notice('Paste the complete JSON again to replace this imported profile. Stored passwords are not returned to the browser.');f.scrollIntoView({behavior:'smooth'});}
  if(b.dataset.toggleXray){const p=state.profiles.find(p=>p.id===b.dataset.toggleXray);await api('xray-profiles/'+p.id,'PATCH',{enabled:!p.enabled});await refresh();}
+ if(b.dataset.editAccount){
+   const account = state.accounts.find(a => a.id === b.dataset.editAccount);
+   editForm.reset();
+   editForm.elements.id.value = account.id;
+   editForm.elements.label.value = account.label;
+   editForm.elements.carrier.value = account.carrier || '';
+   editForm.elements.quota.value = account.quota / 1e9;
+   editForm.elements.duration_hours.value = account.duration / 3600;
+   showAssignedProfiles(account.carrier, account.profile_ids);
+   $('edit-dialog').showModal();
+ }
  if(b.dataset.accessState){
    b.disabled = true;
    try {

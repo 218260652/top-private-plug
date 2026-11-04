@@ -60,6 +60,13 @@ class AdminImportAccessTest(unittest.IsolatedAsyncioTestCase):
                                                   json={'access_state': action})
                     self.assertEqual(response.status, 200)
                     self.assertEqual((await response.json())['status'], status)
+                response = await client.patch(account_path, headers=headers,
+                                              json={'label': 'Edited trial', 'extend_seconds': 86400})
+                self.assertEqual(response.status, 200)
+                updated = await response.json()
+                self.assertEqual(updated['label'], 'Edited trial')
+                self.assertEqual(updated['duration'], 172800)
+                self.assertEqual(updated['status'], 'suspended')
                 response = await client.delete(account_path, headers=headers)
                 self.assertEqual(response.status, 200)
                 self.assertEqual(store.accounts(), [])
