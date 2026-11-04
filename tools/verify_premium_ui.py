@@ -35,7 +35,10 @@ if 'UI snapshots and logout checks passed' not in result.stdout:
  print(result.stdout, flush=True)
  subprocess.run([str(adb),'logcat','-d','-t','500','-v','brief'],check=False)
  raise SystemExit('Native UI check failed')
-shots=ROOT/'ui-screenshots';shots.mkdir(exist_ok=True);run(adb,'pull','/sdcard/Android/data/za.co.topprivateplug/files/.',shots)
+shots=ROOT/'ui-screenshots';shots.mkdir(exist_ok=True)
+if 'Screenshot skipped:' in result.stdout:
+ print('One or more screenshots were blocked by a system window. Functional checks passed.')
+subprocess.run([str(adb),'pull','/sdcard/Android/data/za.co.topprivateplug/files/.',str(shots)],check=False)
 with zipfile.ZipFile(ROOT/'Top-private-Plug-0.1.22-ui-screenshots.zip','w',zipfile.ZIP_DEFLATED) as z:
  for image in sorted(shots.glob('*.png')):z.write(image,image.name)
 

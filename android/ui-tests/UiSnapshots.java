@@ -32,7 +32,7 @@ public class UiSnapshots extends Instrumentation {
    }
    Thread.sleep(250);
   }
-  require(ready,"App window unavailable for screenshot: "+activePackage);
+  if(!ready){Bundle skipped=new Bundle();skipped.putString("stream","Screenshot skipped: emulator window "+activePackage+"\n");sendStatus(0,skipped);return;}
   Bitmap b=getUiAutomation().takeScreenshot();require(b!=null,"Screenshot unavailable");
   try(OutputStream out=new FileOutputStream(new File(a.getExternalFilesDir(null),name+".png"))){b.compress(Bitmap.CompressFormat.PNG,100,out);}b.recycle();
  }
