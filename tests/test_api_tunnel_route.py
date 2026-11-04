@@ -33,8 +33,8 @@ public class ApiHarness {
   org.json.JSONArray profiles=new org.json.JSONArray(new org.json.JSONObject().put("id","profile-A").put("engine","xray"));
   paths.clear();api.prepareProfiles(profiles);
   check(vault.saved&&vault.writes==1);
-  check(paths.equals(java.util.Arrays.asList("/v1/challenge","/v1/connect","/v1/xray/disconnect")));
-  paths.clear();api.prepareProfiles(profiles);check(paths.isEmpty());
+  check(paths.equals(java.util.Arrays.asList("/health","/v1/challenge","/v1/connect","/v1/xray/disconnect")));
+  paths.clear();api.prepareProfiles(profiles);check(paths.equals(java.util.Arrays.asList("/health")));
   api.prepareProfiles(profiles,true);check(vault.writes==2);
   for(int status:new int[]{401,403,429,503}) {
    replyStatus=status;
@@ -58,7 +58,7 @@ public class ApiHarness {
   check(!vault.saved); // a failed save cannot report readiness
   vault.failSave=false;paths.clear();
   api.prepareProfiles(new org.json.JSONArray(new org.json.JSONObject().put("id","legacy").put("engine","other")));
-  check(paths.isEmpty());
+  check(paths.equals(java.util.Arrays.asList("/health")));
  }
  static class FakeConnection extends HttpsURLConnection {
   boolean disconnected;FakeConnection(URL u){super(u);paths.add(u.getPath());}public void connect(){}public void disconnect(){disconnected=true;}public boolean usingProxy(){return true;}
@@ -70,7 +70,7 @@ public class ApiHarness {
 }
 class Vault {
  boolean saved,failSave;int writes;String origin="https://account.example";
- String endpoint(){return origin;}String token(){return "secret-token";}void token(String s){}void activateToken(String s,org.json.JSONObject a){}
+ String network(){return "MTN";}String endpoint(){return origin;}String token(){return "secret-token";}void token(String s){}void activateToken(String s,org.json.JSONObject a){}
  org.json.JSONObject bootstrap(String id){return saved?new org.json.JSONObject():null;}
  void bootstrap(String id,org.json.JSONObject result,String token,String origin)throws Exception{
   if(failSave)throw new java.io.IOException("fixture write failed");
@@ -83,7 +83,7 @@ class DeviceKey {static String publicKey(){return "public";}static String sign(S
         json_stub='''package org.json;public class JSONObject {
  private java.util.Map<String,Object> values=new java.util.HashMap<>();
  public JSONObject(){}public JSONObject(String value){if(value.startsWith("<"))throw new IllegalArgumentException("invalid JSON");values.put("engine","xray");}public JSONObject put(String k,Object v){values.put(k,v);return this;}
- public String optString(String k){return optString(k,"");}public String optString(String k,String d){return values.containsKey(k)?values.get(k).toString():d;}
+ public int optInt(String k,int d){return k.equals("network_binding_version")?1:d;}public String optString(String k){return optString(k,"");}public String optString(String k,String d){return values.containsKey(k)?values.get(k).toString():d;}
  public String getString(String k){return optString(k,"value");}public JSONObject getJSONObject(String k){return this;}
  public String toString(){return "{}";}
 }'''

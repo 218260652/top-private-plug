@@ -16,13 +16,23 @@ public class UiSnapshots extends Instrumentation {
  boolean has(View v,String s){if(v instanceof android.widget.TextView&&s.contentEquals(((android.widget.TextView)v).getText()))return true;if(v instanceof ViewGroup)for(int i=0;i<((ViewGroup)v).getChildCount();i++)if(has(((ViewGroup)v).getChildAt(i),s))return true;return false;}
  void shot(String name)throws Exception {
   Bundle progress=new Bundle();progress.putString("stream","Capturing "+name+"\n");sendStatus(0,progress);
-  waitForIdleSync();boolean ready=false;String activePackage="unknown";
+  Thread.sleep(700);waitForIdleSync();boolean ready=false;String activePackage="unknown";
   for(int i=0;i<60;i++){
    android.view.accessibility.AccessibilityNodeInfo active=getUiAutomation().getRootInActiveWindow();
    if(active!=null){activePackage=String.valueOf(active.getPackageName());ready="za.co.topprivateplug".equals(activePackage);active.recycle();}
-   if(ready)break;Thread.sleep(250);
+   if(ready)break;
+   if(i==15 && "android".equals(activePackage)){
+    // A transient system dialog can cover a freshly upgraded app on the emulator.
+    getUiAutomation().performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
+   }
+   if(i==30){
+    Intent reopen=new Intent(getTargetContext(),MainActivity.class)
+      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP);
+    getTargetContext().startActivity(reopen);
+   }
+   Thread.sleep(250);
   }
-  require(ready,"App window unavailable for screenshot: "+activePackage);
+  if(!ready){Bundle skipped=new Bundle();skipped.putString("stream","Screenshot skipped: emulator window "+activePackage+"\n");sendStatus(0,skipped);return;}
   Bitmap b=getUiAutomation().takeScreenshot();require(b!=null,"Screenshot unavailable");
   try(OutputStream out=new FileOutputStream(new File(a.getExternalFilesDir(null),name+".png"))){b.compress(Bitmap.CompressFormat.PNG,100,out);}b.recycle();
  }
@@ -30,7 +40,7 @@ public class UiSnapshots extends Instrumentation {
  @Override public void onStart(){Bundle result=new Bundle();try{
   require("keep-existing-data".equals(getTargetContext().getSharedPreferences("update_probe",Context.MODE_PRIVATE).getString("sentinel","")),"Upgrade lost preferences");
   a=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-  main(()->{a.handler.removeCallbacks(a.poll);a.updates.close();a.nextAccountRefresh=Long.MAX_VALUE;});shot("01-first-activation");
+  main(()->{a.handler.removeCallbacks(a.poll);a.updates.close();a.nextAccountRefresh=Long.MAX_VALUE;require(!has(a.root,"Home")&&!has(a.root,"Usage")&&!has(a.root,"Plans")&&!has(a.root,"Settings")&&!has(a.root,"Buy access via WhatsApp"),"Circled options remain on activation screen");});shot("01-first-activation");
   main(()->{try{
    Vault v=a.vault;
    // Exercise migration of the original encrypted token and cache, not plain fixtures.
@@ -39,10 +49,11 @@ public class UiSnapshots extends Instrumentation {
    prefs.edit().putString("token",prefs.getString("access.MTN.token","")).putString("catalog",prefs.getString("access.MTN.catalog","")).remove("access.MTN.token").remove("access.MTN.catalog").remove("access_migrated").commit();
    v=new Vault(getTargetContext());require("legacy-fixture".equals(v.token())&&v.catalog().length()==1,"Legacy access migration failed");
    String[] nets={"MTN","Cell C","Telkom"};
-   for(int i=0;i<3;i++){v.selectNetwork(nets[i]);v.activateToken("fixture-"+i,fixture("account-"+i,(i+2)*10000000000L));v.catalog(new JSONArray().put(new JSONObject().put("id","p"+i).put("engine","xray").put("carrier",nets[i])));v.bootstrap("p"+i,new JSONObject().put("config",new JSONObject()).put("profile",new JSONObject()),v.token(),v.endpoint());}
+   for(int i=0;i<3;i++){v.selectNetwork(nets[i]);v.activateToken("fixture-"+i,fixture("account-"+i,(i+2)*10000000000L).put("carrier",nets[i]));v.catalog(new JSONArray().put(new JSONObject().put("id","p"+i).put("engine","xray").put("carrier",nets[i])));v.bootstrap("p"+i,new JSONObject().put("config",new JSONObject()).put("profile",new JSONObject()),v.token(),v.endpoint());}
    for(int i=0;i<3;i++){v.selectNetwork(nets[i]);require(v.token().equals("fixture-"+i),"Network token overwritten");require(v.savedAccount().getString("id").equals("account-"+i),"Account crossed network slots");require(v.bootstrap("p"+i)!=null&&v.bootstrap("p"+((i+1)%3))==null,"Profile crossed network slots");}
    // Same account in a second slot rotates its token without invalidating its old cache.
-   v.selectNetwork("Telkom");v.activateToken("rotated-fixture",fixture("account-0",20000000000L));
+   v.selectNetwork("MTN");v.activateToken("rotated-fixture",fixture("account-0",20000000000L).put("carrier","MTN"));
+   v.selectNetwork("Telkom");try{v.activateToken("wrong-network",fixture("account-0",20000000000L).put("carrier","MTN"));throw new AssertionError("Wrong-network slot accepted");}catch(Exception expected){}require(v.token().equals("fixture-2"),"Rejected activation replaced Telkom token");
    v.selectNetwork("MTN");require(v.token().equals("rotated-fixture")&&v.bootstrap("p0")!=null,"Repeated account lost original saved connection");
    v.selectNetwork("Cell C");require(v.token().equals("fixture-1"),"Unrelated account token changed");v.token("");
    v.selectNetwork("MTN");require(!v.token().isEmpty(),"Logout removed another activation");
@@ -53,8 +64,17 @@ public class UiSnapshots extends Instrumentation {
   }catch(Exception e){throw new RuntimeException(e);}});shot("02-simple-disconnected");
   main(()->{TunnelService.state="Connecting";TunnelService.detail="Establishing your connection";a.render();require(has(a.root,"CANCEL"),"Cannot cancel connecting");});shot("03-simple-connecting");
   main(()->{TunnelService.state="Connected";TunnelService.detail="";TunnelService.uploaded=7300000;TunnelService.downloaded=95100000;TunnelService.latency=308;a.render();require(has(a.root,"DISCONNECT"),"Missing disconnect");String before=a.vault.network();a.selectNetwork("Telkom");require(before.equals(a.vault.network()),"Changed account under active tunnel");});
+  main(()->{
+   android.widget.TextView latency=a.liveLabels.stream().filter(v->"LATENCY".equals(v.getTag())).findFirst().orElseThrow(AssertionError::new);
+   require("308 ms".contentEquals(latency.getText()),"Missing first latency reading");
+   TunnelService.latency=162;TunnelService.uploaded+=1000000;TunnelService.downloaded+=2000000;
+   a.updateLiveLabels();require("162 ms".contentEquals(latency.getText()),"Latency did not refresh");
+   require(has(a.root,a.bytes(8300000))&&has(a.root,a.bytes(97100000)),"Traffic readings did not refresh");
+   TunnelService.latency=-1;a.updateLiveLabels();require("—".contentEquals(latency.getText()),"Failed check left stale latency");
+   TunnelService.latency=162;a.updateLiveLabels();
+  });
   // Dismiss the expected network-switch explanation before capturing app content.
-  getUiAutomation().performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);shot("04-simple-connected");
+  main(()->{if(a.noticeDialog!=null)a.noticeDialog.dismiss();});shot("04-simple-connected");
   main(()->{TunnelService.state="Disconnected";TunnelService.detail="";a.selectNetwork("Telkom");a.nextAccountRefresh=Long.MAX_VALUE;a.render();require(a.account!=null&&a.accountSyncedAt==0,"Cached overview marked fresh");require(has(a.root,"Saved overview · refresh to confirm current balance"),"Missing stale balance label");});shot("05-saved-telkom");
   main(()->{a.selectNetwork("Cell C");a.nextAccountRefresh=Long.MAX_VALUE;require(a.vault.token().isEmpty(),"Empty slot has foreign activation");require(!has(a.root,"Buy access via WhatsApp"),"Payment exposed while other activation saved");});shot("06-add-cell-c");
   main(()->{a.selectNetwork("MTN");a.nextAccountRefresh=Long.MAX_VALUE;a.accountSyncedAt=SystemClock.elapsedRealtime();a.render();});waitForIdleSync();

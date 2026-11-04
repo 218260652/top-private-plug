@@ -48,11 +48,11 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_full_admin_to_client_flow(self):
         await self.login()
         p=await self.client.post('/admin/api/xray-profiles',headers=self.headers,json={'name':'Cell C','carrier':'Cell C','config':imported_config(),'enabled':True});self.assertEqual(p.status,200);profile=await p.json()
-        r=await self.client.post('/admin/api/accounts',headers=self.headers,json={'label':'Client','kind':'trial','duration_seconds':10800,'quota_bytes':1_000_000_000,'profile_ids':[profile['id']]});self.assertEqual(r.status,201);issued=await r.json()
+        r=await self.client.post('/admin/api/accounts',headers=self.headers,json={'label':'Client','carrier':'Cell C','kind':'trial','duration_seconds':10800,'quota_bytes':1_000_000_000,'profile_ids':[profile['id']]});self.assertEqual(r.status,201);issued=await r.json()
         private,public=device();challenge=await self.client.post('/v1/challenge',json={'public_key':public,'purpose':'activate'});self.assertEqual(challenge.status,200)
         # A fresh signed proof also exercises the identical public challenge store.
-        r=await self.client.post('/v1/activate',json=dict(proof(self.store,private,public,'activate'),code=issued['code']));self.assertEqual(r.status,200);activation=await r.json()
-        auth={'Authorization':'Bearer '+activation['token'], 'X-TPP-Engines': 'xray'}
+        r=await self.client.post('/v1/activate',json=dict(proof(self.store,private,public,'activate'),code=issued['code'],carrier='Cell C'));self.assertEqual(r.status,200);activation=await r.json()
+        auth={'X-TPP-Network':'Cell C','Authorization':'Bearer '+activation['token'], 'X-TPP-Engines': 'xray'}
         r=await self.client.get('/v1/status',headers=auth);data=await r.json();self.assertEqual(data['status'],'active');self.assertEqual(data['expires']-data['activated'],10800)
         r=await self.client.get('/v1/profiles',headers=auth);self.assertEqual(len((await r.json())['profiles']),1)
         r=await self.client.post('/v1/connect',headers=auth,json={});self.assertEqual(r.status,400)
@@ -78,7 +78,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             r=await getattr(self.client,method)(path,headers=self.headers,json=data)
             self.assertEqual(r.status,410)
         r=await self.client.get('/admin/api/state');self.assertEqual((await r.json())['profiles'],[])
-        account_data={'label':'Old','kind':'trial','duration_seconds':60,'quota_bytes':1000,'profile_ids':[legacy['id']]}
+        account_data={'label':'Old','carrier':'MTN','kind':'trial','duration_seconds':60,'quota_bytes':1000,'profile_ids':[legacy['id']]}
         r=await self.client.post('/admin/api/accounts',headers=self.headers,json=account_data);self.assertEqual(r.status,400)
         issued=self.store.issue(account_data)
         private,public=device();activation=self.store.activate(dict(proof(self.store,private,public,'activate'),code=issued['code']))

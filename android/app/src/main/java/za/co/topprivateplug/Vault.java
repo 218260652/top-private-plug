@@ -42,6 +42,7 @@ final class Vault {
     JSONObject savedAccount(){synchronized(Vault.class){try{return new JSONObject(decrypt(prefs.getString(stored("account"),"")));}catch(Exception e){return null;}}}
     void activateToken(String value,JSONObject account)throws Exception{synchronized(Vault.class){
         String id=account.getString("id"), current=network();
+        if(!account.optString("carrier",current).equals(current))throw new Exception("Activation network does not match this slot");
         // Reusing the same code rotates its server token. Update every saved
         // reference to that account, preserving each slot's scoped profile cache.
         String copyFrom=null;

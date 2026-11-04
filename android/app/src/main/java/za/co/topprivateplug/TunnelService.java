@@ -256,8 +256,7 @@ public final class TunnelService extends VpnService {
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
         // Use the pinned core's HTTPS connectivity target. Admin-host reachability
         // is checked independently by authenticated API calls and heartbeats.
-        latency = engine.probe("");
-        if (latency < 0) throw new RetryPolicy.TransportFailure("The tunnel HTTPS check failed.");
+        if (engine.probe("") < 0) throw new RetryPolicy.TransportFailure("The tunnel HTTPS check failed.");
         synchronized (this) {
             if (!running.get()) return;
             connectedAt=android.os.SystemClock.elapsedRealtime();
@@ -278,15 +277,20 @@ public final class TunnelService extends VpnService {
                 try { Thread.sleep(1000); } catch (InterruptedException cancelled) { break; }
                 continue;
             }
+            long heartbeatStarted = android.os.SystemClock.elapsedRealtime();
             try {
                 JSONObject check = api.request("/v1/xray/heartbeat", new JSONObject().put("lease", lease)
                     .put("up", uploaded).put("down", downloaded), true);
                 if (!check.optBoolean("ok")) throw new Exception("Account check failed.");
                 // Failed heartbeats never extend the account authorization deadline.
-                leaseDeadline = android.os.SystemClock.elapsedRealtime() + 30000;
-                nextHeartbeat = android.os.SystemClock.elapsedRealtime() + 5000;
-                resetRetryAfterStableHeartbeat(android.os.SystemClock.elapsedRealtime());
+                long heartbeatFinished = android.os.SystemClock.elapsedRealtime();
+                leaseDeadline = heartbeatFinished + 30000;
+                nextHeartbeat = heartbeatFinished + 5000;
+                // This is the response time of the account check through the VPN.
+                latency = heartbeatFinished - heartbeatStarted;
+                resetRetryAfterStableHeartbeat(heartbeatFinished);
             } catch (Exception error) {
+                latency = -1;
                 if (!running.get()) break;
                 if (!RetryPolicy.transientFailure(error)) throw error;
                 ConnectionReport.stage(ConnectionReport.Stage.HEARTBEAT_RETRY);
