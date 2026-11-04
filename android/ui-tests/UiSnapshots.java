@@ -20,7 +20,17 @@ public class UiSnapshots extends Instrumentation {
   for(int i=0;i<60;i++){
    android.view.accessibility.AccessibilityNodeInfo active=getUiAutomation().getRootInActiveWindow();
    if(active!=null){activePackage=String.valueOf(active.getPackageName());ready="za.co.topprivateplug".equals(activePackage);active.recycle();}
-   if(ready)break;Thread.sleep(250);
+   if(ready)break;
+   if(i==15 && "android".equals(activePackage)){
+    // A transient system dialog can cover a freshly upgraded app on the emulator.
+    getUiAutomation().performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
+   }
+   if(i==30){
+    Intent reopen=new Intent(getTargetContext(),MainActivity.class)
+      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP);
+    getTargetContext().startActivity(reopen);
+   }
+   Thread.sleep(250);
   }
   require(ready,"App window unavailable for screenshot: "+activePackage);
   Bitmap b=getUiAutomation().takeScreenshot();require(b!=null,"Screenshot unavailable");
