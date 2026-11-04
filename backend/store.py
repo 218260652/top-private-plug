@@ -7,7 +7,7 @@ import secrets
 import sqlite3
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -279,7 +279,7 @@ class Store:
             from .xray import metadata
             return metadata(db, [dict(row)])[0]
 
-    def issue(self, data):
+    def issue(self, data, connection=None):
         if not isinstance(data.get('label'), str) or not 1 <= len(data['label'].strip()) <= 100:
             raise Fault('Account label must contain 1 to 100 characters')
         if data.get('kind') not in ['trial', 'paid']:
@@ -292,7 +292,7 @@ class Store:
         if not isinstance(profiles, list) or not 1 <= len(profiles) <= 20 or any(not isinstance(p, str) for p in profiles):
             raise Fault('Assign at least one connection profile')
         account_id, code = str(uuid.uuid4()), 'TPP-' + base64.b32encode(secrets.token_bytes(20)).decode()
-        with self.db() as db:
+        with (self.db() if connection is None else nullcontext(connection)) as db:
             carrier=data.get('carrier')
             if carrier is None:
                 names={p['carrier'] for pid in profiles for p in db.execute('SELECT carrier FROM profiles WHERE id=?',(pid,)) if p['carrier'] in self.NETWORKS}
@@ -304,7 +304,8 @@ class Store:
             db.execute('INSERT INTO accounts(id,label,kind,duration,quota,profiles,code_hash,created,carrier) VALUES(?,?,?,?,?,?,?,?,?)',
                        (account_id, data['label'].strip(), data['kind'], data['duration_seconds'], data['quota_bytes'], json.dumps(profiles), digest(code), self.now(), carrier))
             self.audit(db, 'code_created', account_id)
-        return {'account': self.account(account_id), 'code': code}
+            account = self.account(account_id, connection=db)
+        return {'account': account, 'code': code}
 
     def view(self, row):
         r = dict(row)
@@ -314,16 +315,18 @@ class Store:
         r['device_count'] = int(r.get('device_count', 0)) if row['kind'] == 'trial' else int(row['key'] is not None)
         r['profile_ids'] = json.loads(row['profiles'])
         r['remaining_bytes'] = max(0, row['quota'] - row['used'])
-        r['status'] = ('deleted' if row['deleted'] else 'suspended' if row['suspended'] else
+        r['status'] = ('deleted' if row['deleted'] else 'paused' if row['suspended'] == 2 else
+                       'suspended' if row['suspended'] else
                        'pending' if row['activated'] is None else 'expired' if row['expires'] <= self.now() else
                        'depleted' if row['used'] >= row['quota'] else 'active')
+        r['suspended'] = int(bool(row['suspended']))
         r['server_time'] = self.now()
         seen = r.pop('last_seen', None)
         r['online'] = seen is not None and seen > self.now() - 10
         return r
 
-    def account(self, account_id):
-        with self.db() as db:
+    def account(self, account_id, connection=None):
+        with (self.db() if connection is None else nullcontext(connection)) as db:
             row = db.execute('SELECT a.*, (SELECT COUNT(*) FROM trial_devices d WHERE d.account=a.id) AS device_count FROM accounts a WHERE a.id=?', (account_id,)).fetchone()
             if not row:
                 raise Fault('Account not found', 404)
@@ -542,7 +545,7 @@ class Store:
             db.execute('DELETE FROM sessions WHERE id=?', (session_id,))
 
     def update_account(self, account_id, data):
-        allowed = {'label', 'suspended', 'quota_bytes', 'duration_seconds', 'extend_seconds', 'reset_device', 'carrier', 'profile_ids'}
+        allowed = {'label', 'suspended', 'access_state', 'quota_bytes', 'duration_seconds', 'extend_seconds', 'reset_device', 'carrier', 'profile_ids'}
         if not data or set(data) - allowed:
             raise Fault('Unknown or empty account update')
         with self.db() as db:
@@ -560,11 +563,18 @@ class Store:
                 if not isinstance(data['label'], str) or not 1 <= len(data['label'].strip()) <= 100:
                     raise Fault('Invalid account label')
                 db.execute('UPDATE accounts SET label=? WHERE id=?', (data['label'].strip(), account_id))
-            if 'suspended' in data:
-                if type(data['suspended']) is not bool:
-                    raise Fault('Suspended must be boolean')
-                db.execute('UPDATE accounts SET suspended=? WHERE id=?', (data['suspended'], account_id))
-                if data['suspended']:
+            if 'access_state' in data or 'suspended' in data:
+                access_states = {'enabled': 0, 'suspended': 1, 'paused': 2}
+                if 'access_state' in data:
+                    if 'suspended' in data or data['access_state'] not in access_states:
+                        raise Fault('Choose a valid access state')
+                    access_state = access_states[data['access_state']]
+                else:
+                    if type(data['suspended']) is not bool:
+                        raise Fault('Suspended must be boolean')
+                    access_state = int(data['suspended'])
+                db.execute('UPDATE accounts SET suspended=? WHERE id=?', (access_state, account_id))
+                if access_state:
                     db.execute('DELETE FROM tickets WHERE account=?', (account_id,))
             if 'quota_bytes' in data:
                 quota = data['quota_bytes']
@@ -622,5 +632,6 @@ class Store:
             for table in ['tokens', 'trial_tokens', 'token_networks', 'tickets', 'challenges', 'admin_sessions']:
                 db.execute(f'DELETE FROM {table} WHERE expires<=?', (self.now(),))
             db.execute('DELETE FROM usage WHERE at<?', (self.now() - 31 * 86400,))
+
 
 
