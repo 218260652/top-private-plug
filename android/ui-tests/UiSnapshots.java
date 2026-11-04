@@ -54,6 +54,15 @@ public class UiSnapshots extends Instrumentation {
   }catch(Exception e){throw new RuntimeException(e);}});shot("02-simple-disconnected");
   main(()->{TunnelService.state="Connecting";TunnelService.detail="Establishing your connection";a.render();require(has(a.root,"CANCEL"),"Cannot cancel connecting");});shot("03-simple-connecting");
   main(()->{TunnelService.state="Connected";TunnelService.detail="";TunnelService.uploaded=7300000;TunnelService.downloaded=95100000;TunnelService.latency=308;a.render();require(has(a.root,"DISCONNECT"),"Missing disconnect");String before=a.vault.network();a.selectNetwork("Telkom");require(before.equals(a.vault.network()),"Changed account under active tunnel");});
+  main(()->{
+   android.widget.TextView latency=a.liveLabels.stream().filter(v->"LATENCY".equals(v.getTag())).findFirst().orElseThrow(AssertionError::new);
+   require("308 ms".contentEquals(latency.getText()),"Missing first latency reading");
+   TunnelService.latency=162;TunnelService.uploaded+=1000000;TunnelService.downloaded+=2000000;
+   a.updateLiveLabels();require("162 ms".contentEquals(latency.getText()),"Latency did not refresh");
+   require(has(a.root,a.bytes(8300000))&&has(a.root,a.bytes(97100000)),"Traffic readings did not refresh");
+   TunnelService.latency=-1;a.updateLiveLabels();require("—".contentEquals(latency.getText()),"Failed check left stale latency");
+   TunnelService.latency=162;a.updateLiveLabels();
+  });
   // Dismiss the expected network-switch explanation before capturing app content.
   main(()->{if(a.noticeDialog!=null)a.noticeDialog.dismiss();});shot("04-simple-connected");
   main(()->{TunnelService.state="Disconnected";TunnelService.detail="";a.selectNetwork("Telkom");a.nextAccountRefresh=Long.MAX_VALUE;a.render();require(a.account!=null&&a.accountSyncedAt==0,"Cached overview marked fresh");require(has(a.root,"Saved overview · refresh to confirm current balance"),"Missing stale balance label");});shot("05-saved-telkom");
