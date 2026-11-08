@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = id => document.getElementById(id);
-const message = text => { $('message').textContent = text; };
+const message = text => { $('message').textContent = text; if (text) $('message').scrollIntoView({ block: 'nearest' }); };
 const fields = form => Object.fromEntries(new FormData(form));
 const carriers = ['MTN', 'Telkom'];
 let selected = '';
@@ -17,9 +17,14 @@ async function request(path, data) {
   if (response.status === 401) {
     $('login').hidden = false;
     $('dashboard').hidden = true;
+    $('dashboardNav').hidden = true;
+    selected = '';
+    $('detail').hidden = true;
     clearTemporary();
   }
-  const result = await response.json();
+  let result;
+  try { result = await response.json(); }
+  catch { throw Error('The server is temporarily unavailable. Please try again.'); }
   if (!response.ok) throw Error(result.error || 'The request failed.');
   return result;
 }
@@ -29,15 +34,27 @@ const customer = (path, data) => request('customers/' + path, data);
 function safe(action) {
   return async event => {
     if (event) event.preventDefault();
+    const target = event && event.currentTarget;
+    if (target && target.getAttribute('aria-busy') === 'true') return;
+    const button = event && (event.submitter || (target.tagName === 'BUTTON' ? target : null));
+    const oldLabel = button && button.textContent;
+    if (target) target.setAttribute('aria-busy', 'true');
+    if (button) { button.disabled = true; button.textContent = 'Please wait…'; }
     message('');
     try { await action(event); }
     catch (error) { message(error.message); }
+    finally {
+      if (target) target.removeAttribute('aria-busy');
+      if (button) { button.disabled = false; if (button.textContent === 'Please wait…') button.textContent = oldLabel; }
+    }
   };
 }
 
 function row(target, value, action, buttonLabel) {
   const li = document.createElement('li');
-  li.textContent = value;
+  const text = document.createElement('span');
+  text.textContent = value;
+  li.append(text);
   if (action) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -54,6 +71,7 @@ function date(timestamp) {
 
 function events(target, items) {
   target.replaceChildren();
+  if (!items.length) row(target, 'No activity recorded yet.');
   for (const item of items) row(target, date(item.at) + ' · ' + item.action + ' · ' + item.actor + (item.subject ? ' · ' + item.subject : ''));
 }
 
@@ -78,19 +96,23 @@ async function overview() {
   const summary = await customer('overview');
   $('login').hidden = true;
   $('dashboard').hidden = false;
+  $('dashboardNav').hidden = false;
   $('overview').replaceChildren();
-  row($('overview'), 'Total customers: ' + Object.values(summary.counts).reduce((a, b) => a + b, 0));
-  for (const [key, count] of Object.entries(summary.counts)) row($('overview'), key + ': ' + count);
-  row($('overview'), 'Registered devices: ' + summary.registered_devices);
-  row($('overview'), 'Recent app heartbeats: ' + summary.recent_client_heartbeats);
-  row($('overview'), 'Live VPN connections: gateway telemetry unavailable');
-  row($('overview'), 'Database: ' + summary.database);
+  metric('Total customers',  + Object.values(summary.counts).reduce((a, b) => a + b, 0));
+  for (const [key, count] of Object.entries(summary.counts)) metric(key.replaceAll('_', ' '), count);
+  metric('Registered devices', summary.registered_devices);
+  metric('Recent app heartbeats', summary.recent_client_heartbeats);
+  metric('Live VPN connections', 'Not available', 'Gateway telemetry is not connected');
+  metric('Database', summary.database);
   events($('events'), summary.events);
   $('planList').replaceChildren();
+  if (!summary.plans.length) row($('planList'), 'No subscription plans yet. Add your first plan below.');
   for (const plan of summary.plans) {
     row($('planList'), plan.name + ' · ' + plan.days + ' days · ' + (plan.price_cents / 100).toFixed(2),
       () => {
         selectedPlan = plan.id;
+        $('savePlan').textContent = 'Update plan';
+        $('cancelPlan').hidden = false;
         for (const key of ['name', 'days', 'price_cents']) $('plan').elements[key].value = plan[key];
         $('plan').scrollIntoView({ block: 'nearest' });
       }, 'Edit');
@@ -99,6 +121,7 @@ async function overview() {
   for (const carrier of carriers) {
     const current = summary.networks.find(item => item.carrier === carrier);
     const form = document.createElement('form');
+    form.className = 'network-card';
     const label = document.createElement('label');
     label.textContent = carrier + ' ';
     const select = document.createElement('select');
@@ -109,6 +132,7 @@ async function overview() {
     select.value = current ? current.profile : '';
     label.append(select);
     const testedLabel = document.createElement('label');
+    testedLabel.className = 'check';
     const tested = document.createElement('input');
     tested.type = 'checkbox';
     tested.checked = Boolean(current && current.tested);
@@ -129,6 +153,8 @@ async function overview() {
 async function list() {
   const data = await customer('users?q=' + encodeURIComponent(fields($('search')).q));
   $('users').replaceChildren();
+  $('searchCount').textContent = data.users.length + ' accounts shown';
+  if (!data.users.length) row($('users'), fields($('search')).q ? 'No matching accounts. Try another username or name.' : 'No customer accounts yet. Create your first account to get started.');
   for (const user of data.users) row($('users'), user.username + ' · ' + user.status, () => detail(user.id), 'Manage');
 }
 
@@ -138,7 +164,10 @@ async function detail(id) {
   const user = data.user;
   selected = id;
   $('detail').hidden = false;
-  $('customerTitle').textContent = user.username + ' · ' + user.status + ' · starts ' + date(user.starts);
+  $('customerTitle').textContent = user.username;
+  $('customerSummary').textContent = user.status + ' · Started ' + date(user.starts) + ' · Expires ' + date(user.expires);
+  $('detail').scrollIntoView({ block: 'start' });
+  $('detail').focus({ preventScroll: true });
   const edit = $('edit').elements;
   for (const key of ['name', 'notes', 'device_limit']) edit[key].value = user[key];
   edit.expires.value = new Date(user.expires * 1000).toISOString().slice(0, 19);
@@ -149,6 +178,7 @@ async function detail(id) {
   $('renew').hidden = user.state === 'revoked';
   for (const element of edit) element.disabled = user.state === 'revoked';
   $('devices').replaceChildren();
+  if (!data.devices.length) row($('devices'), 'No devices registered for this account.');
   for (const device of data.devices) {
     row($('devices'), device.id + ' · last seen ' + date(device.seen) + (device.revoked ? ' · revoked' : ''), device.revoked ? null : async () => {
       if (!confirm('Revoke this device?')) return;
@@ -190,6 +220,7 @@ $('edit').addEventListener('submit', safe(async () => {
   await detail(selected);
   await list();
   await overview();
+  message('Customer settings saved.');
 }));
 async function lifecycle(action, extra = {}) {
   const id = selected;
@@ -230,11 +261,34 @@ $('plan').addEventListener('submit', safe(async () => {
   data.days = Number(data.days);
   data.price_cents = Number(data.price_cents);
   await customer('plan', data);
-  selectedPlan = '';
-  $('plan').reset();
+  resetPlan();
   await overview();
+  message('Subscription plan saved.');
 }));
 
+function resetPlan() {
+  selectedPlan = '';
+  $('plan').reset();
+  $('savePlan').textContent = 'Save plan';
+  $('cancelPlan').hidden = true;
+}
+$('cancelPlan').addEventListener('click', resetPlan);
+function metric(label, value, hint) {
+  const li = document.createElement('li');
+  const title = document.createElement('span');
+  title.textContent = label;
+  const strong = document.createElement('strong');
+  strong.textContent = value;
+  li.append(title, strong);
+  if (hint) { const small = document.createElement('small'); small.textContent = hint; li.append(small); }
+  $('overview').append(li);
+}
+for (const link of document.querySelectorAll('#dashboardNav a')) {
+  link.addEventListener('click', () => {
+    for (const item of document.querySelectorAll('#dashboardNav a')) item.removeAttribute('aria-current');
+    link.setAttribute('aria-current', 'location');
+  });
+}
 overview().then(list).catch(error => {
   if (!$('login').hidden && error.message === 'Sign in to continue') return;
   message(error.message);
