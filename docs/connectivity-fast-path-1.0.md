@@ -171,3 +171,25 @@ Next implementation gate:
 4. Only then design backend provisioning against the exact deployed 3X-UI API version. Keep the existing admin lease/heartbeat path for current imported profiles until those tests pass.
 
 No live inbound, client, port, TLS setting, or provider account has been modified.
+
+
+## Second inbound clarified by owner (2026-11-08)
+
+The owner clarified that the VLESS inbound described above is the second inbound shown in the dashboard. The first inbound, labelled `TR`, is reported as:
+- protocol: Trojan;
+- transport: TCP;
+- security: TLS;
+- port: 8446;
+- clients: 1;
+- traffic: 108.9 MB / unlimited;
+- duration: infinity.
+
+This confirms two distinct inbounds in the panel:
+- `TR`: Trojan / TCP / TLS / port 8446;
+- `Vless`: VLESS / TCP / TLS / port 40757.
+
+Important reconciliation:
+- The previously supplied app profile was described as a VLESS outbound to an external host on port 8446 using WebSocket+TLS and an HTTP proxy chain. That does not match the panel's `TR` inbound protocol/transport (Trojan over TCP+TLS), nor the panel's `Vless` inbound port (40757). There may be another provider endpoint, an intermediary/proxy, a mislabeled profile, or an inaccurate earlier description. Do not infer that the app profile maps to either inbound yet.
+- Both inbounds show one client, unlimited traffic, and infinite duration. Those settings do not currently demonstrate customer-specific quota or expiry enforcement.
+- Before integration, the owner must identify which inbound each carrier profile actually connects to. Compare the imported profile's protocol, host, port, transport, TLS server name and WS path locally against the inbound configuration. Do not share UUIDs, passwords, proxy identity headers, private keys, or tokens.
+- Do not change either live inbound. Use a separate test inbound/client for any provisioning or enforcement experiments.
