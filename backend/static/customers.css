@@ -56,3 +56,43 @@
   .customer-admin .login { margin: 24px auto; }
   .customer-admin input, .customer-admin select { font-size: 16px; }
 }
+
+.customer-admin .admin-top { position: relative; z-index: 1; min-height: 76px; margin: 0; padding: 14px 28px; justify-content: flex-start; gap: 30px; background: #07172a; border-bottom: 1px solid #24638a; }
+.customer-admin .admin-top > span { border-left: 1px solid #24638a; padding-left: 24px; font-weight: 700; }
+.customer-admin aside { top: 76px; width: 220px; background: #07172a; }
+.customer-admin main { margin-left: 220px; padding: 30px; }
+.customer-admin nav { margin-top: 4px; }
+.customer-admin nav a[aria-current] { background: linear-gradient(105deg,#08d8df,#0674ef); color: #021426; }
+.customer-admin nav button { color: #ffa6ae; }
+.customer-admin .card, .customer-admin .metrics li { border-color: #236089; background: linear-gradient(150deg,#0e2743,#09182a); }
+@media(max-width:650px) {
+  .customer-admin aside { width: auto; padding: 10px 14px; }
+  .customer-admin main { margin-left: 0; padding: 16px; }
+  .customer-admin .admin-top { padding: 12px 16px; gap: 12px; }
+  .customer-admin .admin-top > span { padding-left: 12px; font-size: 12px; }
+}
+
+.customer-admin { background: radial-gradient(ellipse at top right,#0d2b50 0,transparent 34%), #07131f; }
+.customer-admin .admin-top { border-bottom-color: #167ba0; }
+.customer-admin .metrics { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.customer-admin .metrics li { padding: 16px 18px; }
+.customer-admin .metrics strong { color: #eafaff; }
+.customer-admin .metrics li:nth-child(2) strong { color: #72efad; }
+.customer-admin .metrics li:nth-child(3) strong { color: #ffd080; }
+.customer-admin .primary { background: linear-gradient(105deg,#09e0e4,#087bf8); }
+.customer-admin #create .primary { width: 100%; }
+.customer-admin #search { display: flex; gap: 10px; align-items: end; }
+.customer-admin #search label { margin: 0; flex: 1; min-width: 0; }
+.customer-admin .account-expiry { display: block; margin-top: 5px; font-size: 12px; }
+.customer-admin .account-status { display: inline-block; margin-left: 5px; padding: 2px 9px; border-radius: 30px; background: #25354a; text-transform: capitalize; font-size: 12px; }
+.customer-admin .account-status[data-status=active] { color: #a6f5bf; background: #124835; }
+.customer-admin .account-status[data-status=paused], .customer-admin .account-status[data-status=suspended] { color: #ffda9f; background: #49351d; }
+.customer-admin .brand { min-width: 0; }
+@media(max-width:950px) {
+  .customer-admin .metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media(max-width:390px) {
+  .customer-admin .admin-top > span { display: none; }
+  .customer-admin #search { flex-wrap: wrap; }
+  .customer-admin #search label { flex-basis: 100%; }
+}
