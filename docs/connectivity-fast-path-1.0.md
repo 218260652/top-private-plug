@@ -217,3 +217,28 @@ Security architecture:
 - Credential rotation, suspension, expiry, and quota exhaustion must be tested end-to-end before disabling the current app lease/heartbeat model.
 
 Current status: owner says client-management controls are available, but no 3X-UI version, API schema, test-client result, or endpoint-to-app-profile mapping has been verified. No live client or inbound has been modified.
+
+
+## Installed 3X-UI version and test authorization (2026-11-08)
+
+The owner reports the installed panel version is `v3.11.0` and confirms they can create a separate test client without changing existing customers. This authorizes planning a disposable test, but no panel login/API credentials have been provided and no panel operation has been performed by this project.
+
+Version-specific API safety warning:
+- The current upstream API documentation is useful for discovery, but the live v3.11.0 panel's own API Docs/OpenAPI schema is authoritative for this installation.
+- A reported upstream issue/reproduction against v3.11.0 indicates that a partial client update body (for example, sending only `expiryTime`) can overwrite omitted client fields, including `enable`, traffic limits, IP limits, comments and renewal settings. Until verified otherwise on the exact installed build, treat client update as a full-object replacement and never send a partial update payload. Read the existing client, preserve every field, apply the intended change, then update; preferably validate on a disposable test client first.
+- Do not test by changing expiry/quota on either production inbound's existing client. Create a dedicated test client on the intended test inbound, record its original state, and delete/revoke only that test client after testing.
+- Verify the panel/Xray actually blocks the test client after expiry, quota depletion, manual disable and deletion. Observe whether disabling/revoking triggers an Xray restart and how quickly enforcement takes effect.
+- Do not test quota exhaustion by consuming real production traffic. Use a disposable test credential and a very small quota on a test inbound.
+
+Test sequence (manual owner-run, no secrets shared):
+1. Confirm the exact inbound ID and create one clearly named disposable test client on a dedicated test inbound. Do not attach it to both live inbounds unless deliberately testing that behavior.
+2. Set a small finite quota and a short future expiry. Confirm the displayed units and timezone/epoch conversion in the v3.11.0 API schema.
+3. Connect with only the disposable credential and verify it authenticates.
+4. Disable the test client in 3X-UI and verify a new connection is rejected; then re-enable it.
+5. Exhaust the test quota or use a safe supported test method and verify the server rejects new traffic/connections.
+6. Let the test expiry pass in a controlled test window and verify rejection.
+7. Delete the test client and verify the credential no longer works.
+8. Record timestamps for each action and rejection. Do not send the UUID/password, QR code, subscription URL, API token, or panel login details.
+
+Potential performance implication:
+- If 3X-UI enforces client disable/expiry/quota at the Xray endpoint, the app can potentially connect directly using its assigned unique credential after one-time backend provisioning. However, this is only safe after the above enforcement and revocation-latency tests, quota accounting behavior, and endpoint-to-carrier mapping are verified. Until then, keep existing app leases/heartbeats.
