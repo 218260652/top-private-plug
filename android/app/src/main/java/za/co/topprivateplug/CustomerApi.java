@@ -23,18 +23,18 @@ final class CustomerApi {
             .put("signature", DeviceKey.sign(challenge.getString("message")));
     }
 
-    JSONObject login(String username, String password) throws Exception {
+    JSONObject login(String username, String password, boolean persist) throws Exception {
         synchronized (SESSIONS) {
             JSONObject result = api.request(PREFIX + "login",
                 proof("login").put("username", username).put("password", password), false);
-            save(result, UUID.randomUUID().toString());
+            save(result, UUID.randomUUID().toString(), persist);
             return result.getJSONObject("account");
         }
     }
 
-    private void save(JSONObject result, String marker) throws Exception {
+    private void save(JSONObject result, String marker, boolean persist) throws Exception {
         vault.customerSession(new JSONObject().put("access", result.getString("access_token"))
-            .put("refresh", result.getString("refresh_token")).put("marker", marker));
+            .put("refresh", result.getString("refresh_token")).put("marker", marker).put("persist", persist));
     }
 
     JSONObject call(String operation, JSONObject data) throws Exception {
@@ -51,7 +51,7 @@ final class CustomerApi {
                 try {
                     JSONObject result = api.request(PREFIX + "refresh",
                         proof("refresh").put("refresh_token", current.getString("refresh")), false);
-                    save(result, current.getString("marker"));
+                    save(result, current.getString("marker"), current.optBoolean("persist", true));
                 } catch (Api.HttpError error) {
                     if (error.status == 401 || error.status == 403) vault.customerSession(null);
                     throw error;
@@ -64,7 +64,7 @@ final class CustomerApi {
     void changePassword(String password) throws Exception {
         synchronized (SESSIONS) {
             JSONObject result = call("password", proof("password").put("password", password));
-            save(result, UUID.randomUUID().toString());
+            save(result, UUID.randomUUID().toString(), vault.customerSession().optBoolean("persist", true));
         }
     }
 

@@ -56,18 +56,22 @@ final class Vault {
         try { return decrypt(prefs.getString("token", "")); } catch(Exception error) { return ""; }
 
     } }
+    private static String memoryCustomerSession;
+
     JSONObject customerSession() {
         synchronized (Vault.class) {
-            try { return new JSONObject(decrypt(prefs.getString("customer_session", ""))); }
+            try { return new JSONObject(memoryCustomerSession != null ? memoryCustomerSession : decrypt(prefs.getString("customer_session", ""))); }
             catch (Exception ignored) { return new JSONObject(); }
         }
     }
     void customerSession(JSONObject value) throws Exception {
         synchronized (Vault.class) {
             SharedPreferences.Editor edit = prefs.edit();
-            if (value == null) edit.remove("customer_session");
-            else edit.putString("customer_session", encrypt(value.toString()));
+            boolean persist = value != null && value.optBoolean("persist", true);
+            if (persist) edit.putString("customer_session", encrypt(value.toString()));
+            else edit.remove("customer_session");
             if (!edit.commit()) throw new Exception("Could not save the session on this phone.");
+            memoryCustomerSession = value != null && !persist ? value.toString() : null;
         }
     }
     private String scope() throws Exception {
