@@ -18,6 +18,7 @@ public class RecoveryHarness {
  boolean reconnectAllowed=true,retryFailure=true,proxyFailure=true,retryPending,hadLease,foreground=true;
  int retryAttempt,starts,stops; String accessToken="access",accountOrigin="https://admin.example";
  String token="access",endpoint=accountOrigin; static String state="Connected",detail="";
+ String carrierCode="fixture";
  Runnable retryTask; final Main main=new Main();
  static class Main { Runnable delayed;long delay;void postDelayed(Runnable r,long ms){delayed=r;delay=ms;}void removeCallbacks(Runnable r){if(delayed==r)delayed=null;} }
  static class Vault { RecoveryHarness s;Vault(RecoveryHarness s){this.s=s;}String token(){return s.token;}String endpoint(){return s.endpoint;} }
@@ -39,7 +40,7 @@ public class RecoveryHarness {
   RecoveryHarness s=new RecoveryHarness();
   for(int i=1;i<=5;i++){s.onCleanupComplete();check(s.retryAttempt==i&&s.retryPending&&state.equals("Reconnecting"),"Missing retry "+i);Runnable next=s.main.delayed;s.main.delayed=null;next.run();check(s.starts==i,"Attempt did not start");}
   s.onCleanupComplete();check(s.starts==5&&s.stops==1&&state.equals("Disconnected")&&!s.foreground,"Exceeded five retries");
-  s=new RecoveryHarness();s.onCleanupComplete();s.requestStop();check(s.main.delayed==null&&!s.reconnectAllowed&&!s.retryPending,"Stop did not cancel scheduled reconnect");
+  s=new RecoveryHarness();s.onCleanupComplete();s.requestStop();check(s.main.delayed==null&&!s.reconnectAllowed&&!s.retryPending&&s.carrierCode==null,"Stop did not cancel reconnect and clear the carrier code");
   s=new RecoveryHarness();s.onCleanupComplete();s.token="changed";s.main.delayed.run();check(s.starts==0&&!s.reconnectAllowed,"Restarted after logout/account change");
   s=new RecoveryHarness();s.retryFailure=false;s.onCleanupComplete();check(s.main.delayed==null&&s.stops==1,"Retried terminal authorization failure");
   System.out.println("PASS");
