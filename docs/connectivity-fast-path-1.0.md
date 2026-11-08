@@ -145,3 +145,29 @@ Next evidence required from the owner (redacted screenshots/text only):
 4. Confirmation that the owner is authorized to create and revoke test clients on a dedicated test inbound.
 
 Until these checks pass, keep the current imported-profile lease/heartbeat behavior. The 3X-UI discovery does not authorize runtime bypass, provider-side changes, or production credential modifications.
+
+
+## 3X-UI inbound details reported by owner (2026-11-08)
+
+The owner inspected an inbound labelled `Vless` and reported:
+- protocol: VLESS;
+- transport: TCP;
+- security: TLS;
+- port: 40757;
+- clients: 1;
+- traffic: 44.57 GB / unlimited;
+- duration: infinity.
+
+Interpretation and unresolved points:
+- The reported client currently has no expiry configured and no traffic cap configured. This is not sufficient evidence of per-customer subscription enforcement.
+- The inbound reports one client. This does not establish whether the imported profile UUID previously supplied is that client; compare locally in the panel without sending or committing the UUID.
+- The reported inbound uses TCP+TLS on port 40757, while the supplied imported client profile previously described VLESS over WebSocket+TLS to an external hostname on port 8446, with a chained HTTP proxy. These do not obviously describe the same listener. Do not assume this inbound is the actual endpoint used by the app until the owner verifies the relationship locally.
+- The inbound aggregate traffic figure must not be treated as a per-customer quota measurement.
+
+Next implementation gate:
+1. Verify whether this is the inbound that actually receives the app's VLESS connection.
+2. On a dedicated test inbound, create a separate test client and verify that the panel/Xray enforce expiry, traffic cap, disable, and deletion/revocation at connection time.
+3. Verify traffic accounting and reset semantics, including whether a quota-exhausted client is actually rejected by Xray.
+4. Only then design backend provisioning against the exact deployed 3X-UI API version. Keep the existing admin lease/heartbeat path for current imported profiles until those tests pass.
+
+No live inbound, client, port, TLS setting, or provider account has been modified.
