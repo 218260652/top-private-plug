@@ -122,7 +122,7 @@ jobs:
           adb shell pm disable-user --user 0 com.google.android.googlesdksetup
           adb shell am force-stop com.google.android.googlesdksetup
           adb shell input keyevent 82
-          python tools/verify_premium_ui.py
+          TPP_TEST_BUILD=1 python tools/verify_premium_ui.py
           adb emu kill
       - name: Package rebuild sources and licenses
         run: |
@@ -137,9 +137,9 @@ jobs:
         run: |
           tag="test-0.1.23-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           zip -j Top-private-Plug-Test-0.1.23-pilot.zip Top-private-Plug-Test-0.1.23-pilot.apk
-          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.22-ui-screenshots.zip > SHA256SUMS
+          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-Test-0.1.23-ui-screenshots.zip > SHA256SUMS
           gh release create "$tag" --target "$SOURCE_SHA" --title "Top Private Plug Test 0.1.23" --prerelease --notes "Isolated Android test package ID: za.co.topprivateplug.test. The app label is Top Private Plug Test. Its default service address is intentionally blank so it cannot activate against the production admin backend. This build retains the existing server-lease and heartbeat enforcement; it does not enable the unverified direct-connect bypass. Install alongside the production app. A separate staging backend and test activation codes must be configured before connectivity testing."
-          gh release upload "$tag" Top-private-Plug-Test-0.1.23-pilot.apk Top-private-Plug-Test-0.1.23-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.22-ui-screenshots.zip SHA256SUMS
+          gh release upload "$tag" Top-private-Plug-Test-0.1.23-pilot.apk Top-private-Plug-Test-0.1.23-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-Test-0.1.23-ui-screenshots.zip SHA256SUMS
           gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
         if: always()
@@ -150,7 +150,7 @@ jobs:
           path: |
             Top-private-Plug-Test-0.1.23-pilot.apk
             Top-private-Plug-rebuild-source.tar.gz
-            Top-private-Plug-0.1.22-ui-screenshots.zip
+            Top-private-Plug-Test-0.1.23-ui-screenshots.zip
             ui-screenshots/*.png
             update-compatibility.json
           if-no-files-found: error
