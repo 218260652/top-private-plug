@@ -153,7 +153,7 @@ class CustomerStoreCases:
         provision_staging_networks(self.store, json.dumps({carrier:vless() for carrier in ('MTN','Telkom','Cell C')}))
         session = self.login()
         with patch.dict(os.environ, {'TPP_CELL_C_CODE':'fixture-code'}):
-            result = self.call('bootstrap', session)
+            result = self.call('bootstrap', session, self.signed('connect'))
         self.assertEqual(set(result['profiles']), {'MTN','Telkom'})
         with self.store.db() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM customer_leases').fetchone()[0], 0)

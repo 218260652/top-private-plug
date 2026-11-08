@@ -242,7 +242,7 @@ class Customers:
     def customer(self, op, token, data):
         now = self.store.now()
         with self.store.db() as db:
-            if op not in ('profile', 'networks', 'devices', 'bootstrap'):
+            if op not in ('profile', 'networks', 'devices'):
                 db.execute('BEGIN IMMEDIATE')
             row = self.authenticated(db, token, now)
             if op == 'logout':
@@ -266,6 +266,7 @@ class Customers:
                 profiles = {p['carrier']:p for p in self.network_rows(db)}
                 return {'networks': [profiles.get(name, {'carrier':name,'enabled':0,'tested':0}) for name in NETWORKS]}
             if op == 'bootstrap':
+                self.store.proof(db, data, row['public_key'], 'customer-connect')
                 profiles = {}
                 for profile in self.network_rows(db):
                     carrier = profile['carrier']
@@ -492,8 +493,8 @@ def install(app, store, peer, body, token):
     service = Customers(store)
     workers = asyncio.Semaphore(4)
     public_ops = {'login','refresh','challenge'}
-    read_ops = {'profile','subscription','networks','devices','status','bootstrap'}
-    write_ops = {'password','logout','revoke-device','connect','heartbeat','disconnect'}
+    read_ops = {'profile','subscription','networks','devices','status'}
+    write_ops = {'password','logout','revoke-device','connect','heartbeat','disconnect','bootstrap'}
     purposes = {'customer-' + op for op in ('login','refresh','password','device','connect')}
 
     def customer_operation(op, source, bearer, data):
@@ -523,7 +524,7 @@ def install(app, store, peer, body, token):
         if op not in public_ops and not re.fullmatch(r'[A-Za-z0-9_-]{32}',bearer):
             raise Fault('Sign in again',401)
         data = await body(request) if request.method=='POST' else {}
-        if request.method=='POST' and op in ('login','password','refresh','connect','revoke-device'):
+        if request.method=='POST' and op in ('login','password','refresh','connect','revoke-device','bootstrap'):
             if any(not isinstance(data.get(k),str) or len(data[k])>256 for k in ('public_key','challenge_id','signature')):
                 raise Fault('Device proof required',401)
         if op not in public_ops:

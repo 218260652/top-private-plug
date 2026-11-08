@@ -522,7 +522,7 @@ public final class CustomerActivity extends Activity {
         account = api.call("profile", null);
         if (account.optInt("must_change") != 0) return;
         networks = api.call("networks", null).getJSONArray("networks");
-        JSONObject profiles = api.call("bootstrap", null).getJSONObject("profiles");
+        JSONObject profiles = api.bootstrapProfiles();
         vault.saveCustomerCatalog(marker, account, networks, profiles);
     }
 
