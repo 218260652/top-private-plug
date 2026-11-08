@@ -184,31 +184,24 @@ class CustomerStoreCases:
                 self.assertNotIn('http', [outbound['protocol'] for outbound in config['outbounds']])
             self.assertEqual(rows['Cell C']['version'], 1)
 
-    def test_login_bootstrap_excludes_cell_c_and_does_not_allocate_leases(self):
+    def test_login_bootstrap_includes_all_carriers_and_does_not_allocate_leases(self):
         provision_staging_networks(self.store, json.dumps({carrier:vless() for carrier in ('MTN','Telkom','Cell C')}))
         session = self.login()
-        with patch.dict(os.environ, {'TPP_CELL_C_CODE':'fixture-code'}):
-            result = self.call('bootstrap', session, self.signed('connect'))
-        self.assertEqual(set(result['profiles']), {'MTN','Telkom'})
+        result = self.call('bootstrap', session, self.signed('connect'))
+        self.assertEqual(set(result['profiles']), {'MTN', 'Telkom', 'Cell C'})
         with self.store.db() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM customer_leases').fetchone()[0], 0)
         self.service.admin('lifecycle', 'owner', {'action':'pause'}, self.user)
         self.assert_fault(401, lambda: self.call('bootstrap', session))
 
-    def test_cell_c_connection_requires_server_configured_code(self):
+    def test_cell_c_connection_uses_device_proof_without_a_code(self):
         profile = save(self.store, {'name':'Cell C fixture','carrier':'Cell C','config':vless()})
         self.service.admin('network','owner',{'carrier':'Cell C','profile':profile['id']})
         session = self.login()
 
-        def connect(**values):
-            return self.call('connect', session, {**self.signed('connect'), 'carrier':'Cell C', **values})
-
-        with patch.dict(os.environ, {'TPP_CELL_C_CODE':''}):
-            self.assert_fault(403, lambda: connect(carrier_code='fixture-code'))
-        with patch.dict(os.environ, {'TPP_CELL_C_CODE':'fixture-code'}):
-            self.assert_fault(403, connect)
-            self.assert_fault(403, lambda: connect(carrier_code='wrong'))
-            self.assertEqual(connect(carrier_code='fixture-code')['engine'], 'xray')
+        self.assert_fault(401, lambda: self.call('connect', session, {'carrier':'Cell C'}))
+        result = self.call('connect', session, {**self.signed('connect'), 'carrier':'Cell C'})
+        self.assertEqual(result['engine'], 'xray')
 
     def test_pause_renew_resume_suspend_and_delete(self):
         session = self.login()
