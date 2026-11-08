@@ -21,7 +21,7 @@
 .customer-admin #temporary { overflow-wrap: anywhere; }
 .customer-admin #temporary button { margin-left: 8px; }
 .customer-admin section, .customer-admin form { scroll-margin-top: 20px; }
-@media (max-width: 950px) { .customer-admin .account-layout { grid-template-columns: 1fr; gap: 0; } .customer-admin #create { grid-row: 1; } }
+@media (max-width: 950px) { .customer-admin .account-layout { grid-template-columns: 1fr; gap: 0; }  }
 @media (max-width: 650px) { .customer-admin nav a { white-space: nowrap; font-size: 13px; } .customer-admin .masthead .tag { display: none; } }
 
 /* Dashboard review: clear hierarchy and usable narrow-screen forms. */
@@ -95,4 +95,15 @@
   .customer-admin .admin-top > span { display: none; }
   .customer-admin #search { flex-wrap: wrap; }
   .customer-admin #search label { flex-basis: 100%; }
+}
+
+.customer-admin #create { max-width: 620px; }
+.customer-admin #backToCustomers { margin-bottom: 18px; }
+.customer-admin .account-shortcuts { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.customer-admin .account-shortcuts .primary { color: #021426; padding: 10px 14px; border-radius: 9px; text-decoration: none; }
+@media (max-width: 700px), (pointer: coarse) and (max-width: 1100px) {
+  .customer-admin aside { position: static; width: auto; padding: 8px 14px; }
+  .customer-admin nav { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; }
+  .customer-admin nav a, .customer-admin nav button { padding: 9px 10px; font-size: 14px; }
+  .customer-admin main { margin-left: 0; padding: 18px 16px; }
 }

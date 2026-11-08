@@ -4,6 +4,55 @@ const $ = id => document.getElementById(id);
 const message = text => { $('message').textContent = text; if (text) $('message').scrollIntoView({ block: 'nearest' }); };
 const fields = form => Object.fromEntries(new FormData(form));
 let selected = '';
+let activeView = '';
+const views = {
+  'dashboard-view': ['VPN Admin Dashboard', 'View account totals and open account tools.'],
+  'create-account': ['Create VPN account', 'Set the customer’s login and access duration.'],
+  'customers': ['Customers', 'Search and review customer accounts.']
+};
+
+function route() {
+  const hash = location.hash.slice(1);
+  if (hash === 'create') return 'create-account';
+  if (hash === 'accounts') return 'customers';
+  return Object.hasOwn(views, hash) ? hash : 'dashboard-view';
+}
+
+function renderView() {
+  if ($('dashboard').hidden) return;
+  const view = route();
+  if (activeView !== view) {
+    selected = '';
+    clearTemporary();
+    activeView = view;
+  }
+  const reviewing = view === 'customers' && Boolean(selected);
+  $('summaryView').hidden = view !== 'dashboard-view';
+  $('create').hidden = view !== 'create-account';
+  $('accounts').hidden = view !== 'customers' || reviewing;
+  $('detail').hidden = !reviewing;
+  $('pageTitle').textContent = reviewing ? 'Review account' : views[view][0];
+  $('pageDescription').textContent = reviewing ? 'Manage access and subscription details.' : views[view][1];
+  for (const link of document.querySelectorAll('#dashboardNav a')) {
+    if (link.hash === '#' + view) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  }
+}
+
+window.addEventListener('hashchange', () => {
+  if ($('dashboard').hidden) return;
+  message('');
+  renderView();
+  $('pageTitle').focus({ preventScroll: true });
+  window.scrollTo(0, 0);
+});
+$('backToCustomers').addEventListener('click', () => {
+  selected = '';
+  clearTemporary();
+  renderView();
+  $('pageTitle').focus();
+});
+
 
 async function request(path, data) {
   const response = await fetch('/admin/api/' + path, {
@@ -17,6 +66,9 @@ async function request(path, data) {
     $('dashboard').hidden = true;
     $('dashboardNav').hidden = true;
     selected = '';
+    activeView = '';
+    $('pageTitle').textContent = 'VPN Admin Dashboard';
+    $('pageDescription').textContent = 'Sign in to manage VPN access.';
     $('detail').hidden = true;
     clearTemporary();
   }
@@ -95,6 +147,7 @@ async function overview() {
   $('login').hidden = true;
   $('dashboard').hidden = false;
   $('dashboardNav').hidden = false;
+  renderView();
   $('overview').replaceChildren();
   metric('Total customers', Object.values(summary.counts).reduce((a, b) => a + b, 0));
   metric('Active', summary.counts.active ?? 0);
@@ -128,9 +181,10 @@ async function list() {
 async function detail(id) {
   clearTemporary();
   const data = await customer('user?id=' + encodeURIComponent(id));
+  if (route() !== 'customers' || $('dashboard').hidden) return;
   const user = data.user;
   selected = id;
-  $('detail').hidden = false;
+  renderView();
   $('customerTitle').textContent = user.username;
   $('customerSummary').textContent = user.status + ' · Started ' + date(user.starts) + ' · Expires ' + date(user.expires);
   $('detail').scrollIntoView({ block: 'start' });
@@ -174,9 +228,9 @@ $('create').addEventListener('submit', safe(async () => {
   data.device_limit = 1;
   const result = await customer('create', data);
   $('create').reset();
+  if (route() === 'create-account') showPassword(result.initial_password, 'Password');
   await list();
   await overview();
-  showPassword(result.initial_password, 'Password');
 }));
 $('edit').addEventListener('submit', safe(async () => {
   const data = fields($('edit'));
@@ -220,7 +274,9 @@ $('revoke').addEventListener('click', safe(async () => {
 }));
 $('reset').addEventListener('click', safe(async () => {
   if (!confirm('Reset the password and revoke existing sessions?')) return;
-  showPassword((await customer('reset', { id: selected })).temporary_password, 'Temporary reset password');
+  const id = selected;
+  const result = await customer('reset', { id });
+  if (route() === 'customers' && selected === id) showPassword(result.temporary_password, 'Temporary reset password');
 }));
 function metric(label, value, hint) {
   const li = document.createElement('li');
@@ -231,12 +287,6 @@ function metric(label, value, hint) {
   li.append(title, strong);
   if (hint) { const small = document.createElement('small'); small.textContent = hint; li.append(small); }
   $('overview').append(li);
-}
-for (const link of document.querySelectorAll('#dashboardNav a')) {
-  link.addEventListener('click', () => {
-    for (const item of document.querySelectorAll('#dashboardNav a')) item.removeAttribute('aria-current');
-    link.setAttribute('aria-current', 'location');
-  });
 }
 overview().then(list).catch(error => {
   if (!$('login').hidden && error.message === 'Sign in to continue') return;

@@ -11,9 +11,9 @@
 <body class="customer-admin">
 <a class="skip-link" href="#main">Skip to main content</a>
 <header class="admin-top"><a class="brand" href="/admin/"><img src="/assets/icon.svg" alt=""><span>Top Private Plug<small>PRIVATE VPN</small></span></a><span>Admin Dashboard</span></header>
-<aside id="dashboardNav" hidden><nav aria-label="Dashboard"><a href="#main" aria-current="location">Dashboard</a><a href="#create">Create account</a><a href="#accounts">Customers</a><button id="logout" type="button">Sign out</button></nav></aside>
+<aside id="dashboardNav" hidden><nav aria-label="Dashboard"><a href="#dashboard-view" aria-current="page">Dashboard</a><a href="#create-account">Create account</a><a href="#customers">Customers</a><button id="logout" type="button">Sign out</button></nav></aside>
 <main id="main" tabindex="-1">
-<header class="masthead"><div><div class="eyebrow">CUSTOMER ADMINISTRATION</div><h1>VPN Admin Dashboard</h1><p>Create customer accounts and manage VPN access.</p></div><span class="tag">STAGING</span></header>
+<header class="masthead"><div><div class="eyebrow">CUSTOMER ADMINISTRATION</div><h1 id="pageTitle" tabindex="-1">VPN Admin Dashboard</h1><p id="pageDescription">Create customer accounts and manage VPN access.</p></div><span class="tag">STAGING</span></header>
 <p id="message" role="status" aria-live="polite"></p>
 <form id="login" class="card login">
 <h2>Administrator sign-in</h2>
@@ -24,20 +24,26 @@
 <p class="muted">Use your administrator account to manage customer access.</p>
 </form>
 <div id="dashboard" hidden>
+<section id="summaryView" aria-label="Dashboard overview">
 <ul id="overview" class="metrics" aria-label="Account totals"></ul>
-<div class="account-layout">
-<section class="card" id="accounts"><h2>Customers</h2>
+<section class="card"><h2>Account shortcuts</h2><div class="account-shortcuts">
+<a class="primary" href="#create-account">Create an account</a>
+<a href="#customers">Review customers</a>
+</div></section>
+</section>
+<section class="card" id="accounts" hidden><h2>Customers</h2>
 <form id="search"><label>Search by username or name <input name="q" type="search" maxlength="80" placeholder="Enter username or name"></label><button>Search</button></form>
 <p id="searchCount" class="muted" aria-live="polite"></p><ul id="users" class="rows"></ul>
 </section>
-<form id="create" class="card"><div class="eyebrow">CUSTOMER ACCESS</div><h2>Create VPN account</h2>
+<form id="create" class="card" hidden><div class="eyebrow">CUSTOMER ACCESS</div><h2>Create VPN account</h2>
 <label>Username <input name="username" maxlength="40" placeholder="Enter username" required></label>
 <label>Password (12–128 characters; blank to generate) <input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>
 <label>Duration in days <input name="days" type="number" min="1" max="366" value="30" required></label>
 <button class="primary">Create account</button>
-</form></div>
+</form>
 <p id="temporary" class="code-result" hidden></p>
 <section id="detail" class="card" tabindex="-1" aria-labelledby="customerTitle" hidden>
+<button id="backToCustomers" type="button">Back to customers</button>
 <h2 id="customerTitle"></h2><p id="customerSummary" class="section-copy"></p>
 <div class="lifecycle" aria-label="Account actions">
 <form id="renew"><label>Renewal days <input name="days" type="number" min="1" max="366" value="30" required></label><button class="primary">Renew</button></form>
