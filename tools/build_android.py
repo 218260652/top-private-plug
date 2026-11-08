@@ -44,8 +44,8 @@ def main():
     manifest = ET.parse(source / 'AndroidManifest.xml')
     namespace = 'za.co.topprivateplug'
     app_id = namespace + ('.test' if args.customer_test else '')
-    version_code = '35' if args.customer_test else '18'
-    version_name = '0.2.10' if args.customer_test else '0.1.17-pilot'
+    version_code = '36' if args.customer_test else '18'
+    version_name = '0.2.11' if args.customer_test else '0.1.17-pilot'
     root = manifest.getroot()
     root.set('package', app_id)
     if args.customer_test:
@@ -60,7 +60,7 @@ def main():
                 root.remove(permission)
     manifest.write(build / 'AndroidManifest.xml', encoding='utf-8', xml_declaration=True)
     run(tools / 'aapt2', 'link', '-o', build / 'base.apk', '--manifest', build / 'AndroidManifest.xml',
-        '-I', android, '--java', build / 'gen', '--custom-package', namespace, '--min-sdk-version', '26', '--target-sdk-version', '35',
+        '-I', android, '--java', build / 'gen', '--custom-package', namespace, '--min-sdk-version', '26', '--target-sdk-version', '36',
         '-A', source / 'assets', '--version-code', version_code, '--version-name', version_name, '--debug-mode', build / 'res.zip')
     aar = ROOT / 'android' / 'app' / 'libs' / 'libv2ray.aar'
     if not aar.exists():
@@ -92,7 +92,7 @@ def main():
     if not keystore.exists():
         run('keytool', '-genkeypair', '-keystore', keystore, '-storepass', 'android', '-keypass', 'android', '-alias',
             'androiddebugkey', '-dname', 'CN=Android Debug,O=Android,C=ZA', '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000')
-    output = ROOT / ('Top-Private-Plug-0.2.10.apk' if args.customer_test else 'Top-private-Plug-0.1.17-pilot.apk')
+    output = ROOT / ('Top-Private-Plug-0.2.11.apk' if args.customer_test else 'Top-private-Plug-0.1.17-pilot.apk')
     run(tools / 'apksigner', 'sign', '--ks', keystore, '--ks-key-alias', 'androiddebugkey', '--ks-pass', 'pass:android',
         '--key-pass', 'pass:android', '--out', output, build / 'aligned.apk')
     run(tools / 'apksigner', 'verify', '--verbose', output)

@@ -168,6 +168,7 @@ class CustomerStoreCases:
 
     def test_direct_staging_update_replaces_only_managed_proxy_profiles(self):
         raw = vless()
+        raw['outbounds'][0]['streamSettings']['tlsSettings']['allowInsecure'] = True
         raw['outbounds'][0]['proxySettings'] = {'tag':'upstream'}
         raw['outbounds'].append({'tag':'upstream', 'protocol':'http', 'settings':{
             'servers':[{'address':'proxy.example.com','port':8080}]}})
@@ -191,8 +192,9 @@ class CustomerStoreCases:
             for carrier in ('MTN', 'Telkom'):
                 self.assertEqual(rows[carrier]['version'], 3)
                 config = self.service.connection_config(db, rows[carrier])
-                self.assertEqual(config['outbounds'][0]['streamSettings']['sockopt']['dialerProxy'],
-                                 'http-upstream')
+                stream = config['outbounds'][0]['streamSettings']
+                self.assertEqual(stream['sockopt']['dialerProxy'], 'http-upstream')
+                self.assertIs(stream['tlsSettings']['allowInsecure'], False)
             self.assertEqual(rows['Cell C']['version'], 1)
 
     def test_login_bootstrap_excludes_cell_c_and_does_not_allocate_leases(self):

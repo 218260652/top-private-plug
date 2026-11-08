@@ -108,6 +108,14 @@ def provision_staging_networks(store, raw, direct_mtn_telkom=False):
         profiles = json.loads(raw)
         if not isinstance(profiles, dict) or not profiles or set(profiles) - set(NETWORKS):
             raise ValueError()
+        # Customer staging always verifies the endpoint certificate, even
+        # when an exported VLESS profile requested a verification bypass.
+        for profile in profiles.values():
+            for outbound in profile['outbounds']:
+                if outbound.get('protocol') == 'vless':
+                    tls = outbound['streamSettings'].get('tlsSettings', {})
+                    if tls.get('allowInsecure') is True:
+                        tls['allowInsecure'] = False
         normalized = {carrier: xray.normalize(profile) for carrier, profile in profiles.items()}
         direct_configs = {}
         for carrier in ('MTN', 'Telkom'):
