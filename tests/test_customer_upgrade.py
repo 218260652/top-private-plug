@@ -121,6 +121,21 @@ class CustomerStoreCases:
         self.assert_fault(403,lambda: self.call('heartbeat',session,{'lease':result['lease']}))
         self.assert_fault(403,lambda: self.call('connect',session,{**self.signed('connect'),'carrier':'MTN'}))
 
+    def test_pending_connection_can_be_retried_but_live_connection_cannot(self):
+        provision_staging_networks(self.store, json.dumps({'MTN':vless(), 'Telkom':vless()}))
+        session = self.login()
+
+        def connect(carrier):
+            return self.call('connect', session, {**self.signed('connect'), 'carrier':carrier})
+
+        first = connect('MTN')
+        second = connect('Telkom')
+        self.assertNotEqual(first['lease'], second['lease'])
+        self.assert_fault(403, lambda: self.call('heartbeat', session, {'lease':first['lease']}))
+        self.call('disconnect', session, {'lease':first['lease']})
+        self.assertTrue(self.call('heartbeat', session, {'lease':second['lease']})['ok'])
+        self.assert_fault(409, lambda: connect('MTN'))
+
     def test_staging_profiles_seed_missing_networks_without_overwriting(self):
         raw = json.dumps({'MTN':vless(), 'Telkom':vless()})
         provision_staging_networks(self.store, raw)
