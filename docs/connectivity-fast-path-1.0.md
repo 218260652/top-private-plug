@@ -121,3 +121,27 @@ Security and implementation consequences:
 - The endpoint's management API, per-user credential provisioning, server-side expiry, revocation, quota accounting, and concurrency controls remain unknown.
 
 Decision: keep the existing lease/heartbeat enforcement for this imported profile until the provider confirms and demonstrates per-customer credential provisioning and server-side revocation/expiry/quota enforcement. The direct no-admin-roundtrip path can be enabled only for a separately verified managed endpoint capability. No runtime code change is authorized by this profile review.
+
+
+## 3X-UI provider-panel discovery (2026-11-08)
+
+The owner confirmed that the VLESS provider panel is 3X-UI. The upstream 3X-UI project documents a REST API and an in-panel OpenAPI document at `/panel/api/openapi.json`. Its current API reference describes client creation, update, enable/disable, traffic inspection, and expiry/quota-related client fields. API tokens created in Settings are full-admin credentials.
+
+This makes 3X-UI a plausible provisioning/control-plane integration, but it does not yet prove that this deployment can safely replace the current lease path. The deployed panel version, base path, inbound ID/protocol/transport, API feature set, and provider-side enforcement behavior must be checked against the live panel's own API Docs/OpenAPI schema.
+
+Integration security requirements:
+- The Android app must never call 3X-UI directly and must never contain the panel API token.
+- Store the full-admin API token only in the Top Private Plug backend's secret manager/environment, with restricted access, rotation, and redaction from logs.
+- The backend must map each Top Private Plug account to a distinct 3X-UI client identity (UUID/client ID) and the intended inbound(s); never distribute a shared provider credential to multiple customers if individual suspension/revocation is promised.
+- Provision, update, disable, and revoke through the documented API for the exact deployed version. Verify that expiry and traffic quota are enforced by the running Xray service, not merely displayed in the panel.
+- Confirm how the panel handles exhausted quota, expired clients, resets, traffic accounting, and concurrent connections. Do not assume the UI's displayed counters are a hard real-time quota gate.
+- Keep API access server-side. Do not expose panel URL, API token, admin password, client UUIDs, or customer identifiers in the Android APK, public repository, CI output, or screenshots.
+- Test on a dedicated non-production inbound/client first. Do not modify existing provider clients or inbounds during discovery.
+
+Next evidence required from the owner (redacted screenshots/text only):
+1. 3X-UI version/build shown in the panel.
+2. The inbound details for the MTN/Telkom profile: protocol, transport, TLS/Reality mode, and inbound ID/remark. Redact hostnames, UUIDs, private keys, passwords, subscription URLs, and tokens.
+3. Whether API Docs is visible and whether the live OpenAPI page loads. Do not send the API token or admin login.
+4. Confirmation that the owner is authorized to create and revoke test clients on a dedicated test inbound.
+
+Until these checks pass, keep the current imported-profile lease/heartbeat behavior. The 3X-UI discovery does not authorize runtime bypass, provider-side changes, or production credential modifications.
