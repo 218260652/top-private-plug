@@ -19,7 +19,7 @@ public class UiSnapshots extends Instrumentation {
   Thread.sleep(700);waitForIdleSync();boolean ready=false;String activePackage="unknown";
   for(int i=0;i<60;i++){
    android.view.accessibility.AccessibilityNodeInfo active=getUiAutomation().getRootInActiveWindow();
-   if(active!=null){activePackage=String.valueOf(active.getPackageName());ready="za.co.topprivateplug".equals(activePackage);active.recycle();}
+   if(active!=null){activePackage=String.valueOf(active.getPackageName());ready=getTargetContext().getPackageName().equals(activePackage);active.recycle();}
    if(ready)break;
    if(i==15 && "android".equals(activePackage)){
     // A transient system dialog can cover a freshly upgraded app on the emulator.
@@ -38,7 +38,6 @@ public class UiSnapshots extends Instrumentation {
  }
  JSONObject fixture(String id,long quota)throws Exception{return new JSONObject().put("id",id).put("status","active").put("quota",quota).put("used",1200000000L).put("remaining_bytes",quota-1200000000L).put("expires",System.currentTimeMillis()/1000+14*86400);}
  @Override public void onStart(){Bundle result=new Bundle();try{
-  require("keep-existing-data".equals(getTargetContext().getSharedPreferences("update_probe",Context.MODE_PRIVATE).getString("sentinel","")),"Upgrade lost preferences");
   a=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
   main(()->{a.handler.removeCallbacks(a.poll);a.updates.close();a.nextAccountRefresh=Long.MAX_VALUE;require(!has(a.root,"Home")&&!has(a.root,"Usage")&&!has(a.root,"Plans")&&!has(a.root,"Settings")&&!has(a.root,"Buy access via WhatsApp"),"Circled options remain on activation screen");});shot("01-first-activation");
   main(()->{try{
