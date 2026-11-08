@@ -376,7 +376,7 @@ public final class CustomerActivity extends Activity {
         root = page;
         gap(12);
         page = card(15);
-        label("VPN Subscription", 21).setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        label("trial".equals(account.optString("account_type")) ? "Free Trial" : "VPN Subscription", 21).setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         TextView status = label(account.optString("status").toUpperCase(Locale.ROOT), 14);
         status.setTextColor("active".equals(account.optString("status")) ? 0xff5eeb75 : 0xffffca78);
         gap(10);

@@ -164,6 +164,11 @@ public final class TunnelService extends VpnService {
             if (vault.staging) {
                 JSONObject profiles = vault.customerCache().optJSONObject("profiles");
                 JSONObject config = profiles == null ? null : profiles.optJSONObject(profileId);
+                if (config != null && ("MTN".equals(profileId) || "Telkom".equals(profileId))) {
+                    JSONObject stream = config.getJSONArray("outbounds").getJSONObject(0).optJSONObject("streamSettings");
+                    JSONObject sockets = stream == null ? null : stream.optJSONObject("sockopt");
+                    if (sockets != null && sockets.has("dialerProxy")) config = null;
+                }
                 saved = config == null ? null : new JSONObject().put("config", config);
             } else saved = vault.bootstrap(profileId);
             if(saved!=null) {

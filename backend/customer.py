@@ -74,7 +74,7 @@ def view(row, now):
 
 
 def customer_view(row, now):
-    return {**{key: row[key] for key in ('id','username','starts','expires','device_limit','must_change')},
+    return {**{key: row[key] for key in ('id','username','starts','expires','device_limit','must_change','account_type')},
             'status': state(row, now)}
 
 
@@ -89,24 +89,55 @@ def migrate(store):
         for statement in sql.split(';'):
             if statement.strip():
                 db.execute(statement)
+        if store.postgres:
+            db.execute("ALTER TABLE customer_users ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'paid' CHECK(account_type IN ('paid','trial'))")
+        elif not any(column['name'] == 'account_type' for column in db.execute('PRAGMA table_info(customer_users)')):
+            db.execute("ALTER TABLE customer_users ADD COLUMN account_type TEXT NOT NULL DEFAULT 'paid' CHECK(account_type IN ('paid','trial'))")
+        for row in db.execute("SELECT id FROM customer_users WHERE account_type='paid' AND device_limit<>1"):
+            customer = row['id']
+            devices = list(db.execute('SELECT id FROM customer_devices WHERE customer=? AND revoked=0 ORDER BY created,id', (customer,)))
+            for device in devices[1:]:
+                Customers.revoke_device(db, customer, device['id'], store.now(), 'device-policy-migration')
+            db.execute('UPDATE customer_users SET device_limit=1 WHERE id=?', (customer,))
 
 
-def provision_staging_networks(store, raw):
+def provision_staging_networks(store, raw, direct_mtn_telkom=False):
     """Seed missing carrier assignments from private staging configuration."""
     try:
         profiles = json.loads(raw)
         if not isinstance(profiles, dict) or not profiles or set(profiles) - set(NETWORKS):
             raise ValueError()
+        if direct_mtn_telkom:
+            for carrier in ('MTN', 'Telkom'):
+                if carrier not in profiles:
+                    continue
+                for outbound in profiles[carrier]['outbounds']:
+                    if outbound['protocol'] == 'vless':
+                        outbound.pop('proxySettings', None)
+                        outbound['streamSettings'].get('sockopt', {}).pop('dialerProxy', None)
         normalized = {carrier: xray.normalize(profile) for carrier, profile in profiles.items()}
         if any(not is_vless(config) or insecure for config, _, _, _, insecure in normalized.values()):
             raise ValueError()
-    except (ValueError, Fault):
+    except (ValueError, KeyError, TypeError, AttributeError, Fault):
         raise SystemExit('Invalid staging carrier configuration. Check private service settings.') from None
 
     with store.db() as db:
         db.execute('BEGIN IMMEDIATE')
         for carrier, (config, address, port, sni, insecure) in normalized.items():
-            if db.execute('SELECT 1 FROM customer_networks WHERE carrier=?', (carrier,)).fetchone():
+            current = db.execute('''SELECT p.id,p.name,x.config FROM customer_networks n
+                JOIN profiles p ON p.id=n.profile JOIN xray_profiles x ON x.profile=p.id
+                WHERE n.carrier=?''', (carrier,)).fetchone()
+            if current:
+                if (not direct_mtn_telkom or carrier not in ('MTN', 'Telkom')
+                        or current['name'] != carrier + ' staging' or json.loads(current['config']) == config):
+                    continue
+                db.execute('UPDATE profiles SET server=?,port=?,sni=?,version=version+1 WHERE id=?',
+                           (address, port, sni, current['id']))
+                db.execute('UPDATE xray_profiles SET config=?,insecure=? WHERE profile=?',
+                           (json.dumps(config), int(insecure), current['id']))
+                db.execute('UPDATE customer_networks SET tested=0 WHERE carrier=?', (carrier,))
+                db.execute('DELETE FROM customer_leases WHERE carrier=?', (carrier,))
+                event(db, store.now(), 'staging-setup', carrier, 'network_updated')
                 continue
             profile = identifier()
             db.execute('INSERT INTO profiles(id,name,carrier,server,port,sni,tls_min,enabled) VALUES(?,?,?,?,?,?,?,1)',
@@ -405,7 +436,10 @@ class Customers:
                 name = username(data.get('username'))
                 if db.execute('SELECT 1 FROM customer_users WHERE username=?',(name,)).fetchone():
                     raise Fault('Username already exists',409)
-                limit = bounded(data.get('device_limit'),1,50,'device limit')
+                account_type = data.get('account_type', 'paid')
+                if account_type not in ('paid', 'trial'):
+                    raise Fault('Choose paid or free trial')
+                limit = 50 if account_type == 'trial' else 1
                 plan = data.get('plan')
                 if plan:
                     plan_row = db.execute('SELECT days FROM customer_plans WHERE id=?',(plan,)).fetchone()
@@ -419,9 +453,10 @@ class Customers:
                 initial_state = data.get('state','active')
                 if initial_state not in ('active','suspended'):
                     raise Fault('Invalid account status')
-                db.execute('INSERT INTO customer_users VALUES(?,?,?,?,?,?,?,?,?,?,0,NULL)',
+                db.execute('''INSERT INTO customer_users(id,username,password,name,notes,state,created,starts,expires,device_limit,must_change,last_login,account_type)
+                           VALUES(?,?,?,?,?,?,?,?,?,?,0,NULL,?)''',
                            (customer,name,hash_password(plain),self.label(data.get('name',''),100),
-                            self.label(data.get('notes',''),500),initial_state,now,now,now+days*86400,limit))
+                            self.label(data.get('notes',''),500),initial_state,now,now,now+days*86400,limit,account_type))
                 event(db,now,actor,customer,'customer_created')
                 return {'id':customer,'initial_password':plain}
             row = db.execute('SELECT * FROM customer_users WHERE id=?',(customer,)).fetchone()
@@ -470,13 +505,13 @@ class Customers:
             if current_state not in ('active','paused','suspended','revoked'):
                 raise Fault('Invalid account status')
             expires = bounded(data.get('expires',row['expires']),row['starts'],now+3660*86400,'subscription expiry')
-            limit = bounded(data.get('device_limit',row['device_limit']),1,50,'device limit')
-            count = db.execute('SELECT COUNT(*) FROM customer_devices WHERE customer=? AND revoked=0',(customer,)).fetchone()[0]
-            if count > limit:
-                raise Fault('Revoke excess devices before lowering this limit',409)
-            db.execute('UPDATE customer_users SET name=?,notes=?,state=?,expires=?,device_limit=? WHERE id=?',
+            if data.get('device_limit', row['device_limit']) != row['device_limit']:
+                raise Fault('Device limit is fixed by account type')
+            if data.get('account_type', row['account_type']) != row['account_type']:
+                raise Fault('Account type cannot be changed')
+            db.execute('UPDATE customer_users SET name=?,notes=?,state=?,expires=? WHERE id=?',
                        (self.label(data.get('name',row['name']),100),self.label(data.get('notes',row['notes']),500),
-                        current_state,expires,limit,customer))
+                        current_state,expires,customer))
             if current_state != 'active' or expires <= now:
                 self.revoke(db,customer)
             event(db,now,actor,customer,'customer_updated:' + current_state)

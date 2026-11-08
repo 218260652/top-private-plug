@@ -149,6 +149,41 @@ class CustomerStoreCases:
         result = self.call('connect', self.login(), {**self.signed('connect'), 'carrier':'Telkom'})
         self.assertEqual(result['config']['outbounds'][0]['protocol'], 'vless')
 
+    def test_paid_and_trial_device_limits(self):
+        paid = self.service.admin('user', 'owner', {}, self.user)['user']
+        self.assertEqual((paid['account_type'], paid['device_limit']), ('paid', 1))
+        self.login()
+        self.assert_fault(409, lambda: self.login(device=device()))
+        self.assert_fault(400, lambda: self.service.admin('update', 'owner', {'device_limit':50}, self.user))
+
+        trial = self.service.admin('create', 'owner', {'username':'trial-user','password':INITIAL,
+                                                      'days':1,'account_type':'trial'})['id']
+        with self.store.db() as db:
+            for i in range(49):
+                db.execute('INSERT INTO customer_devices VALUES(?,?,?,?,?,0)',
+                           (f'device-{i}', trial, f'fixture-key-{i}', self.now, self.now))
+        result = self.login(username='trial-user')
+        self.assertEqual((result['account']['account_type'], result['account']['device_limit']), ('trial', 50))
+        self.assert_fault(409, lambda: self.login(username='trial-user', device=device()))
+
+    def test_direct_staging_update_replaces_only_managed_proxy_profiles(self):
+        raw = vless()
+        raw['outbounds'][0]['proxySettings'] = {'tag':'upstream'}
+        raw['outbounds'].append({'tag':'upstream', 'protocol':'http', 'settings':{
+            'servers':[{'address':'proxy.example.com','port':8080}]}})
+        payload = json.dumps({'MTN':raw,'Telkom':raw,'Cell C':vless()})
+        provision_staging_networks(self.store, payload)
+        provision_staging_networks(self.store, payload, direct_mtn_telkom=True)
+        provision_staging_networks(self.store, payload, direct_mtn_telkom=True)
+        with self.store.db() as db:
+            rows = {row['carrier']:row for row in self.service.network_rows(db)}
+            for carrier in ('MTN','Telkom'):
+                self.assertEqual(rows[carrier]['version'], 2)
+                config = self.service.connection_config(db, rows[carrier])
+                self.assertNotIn('sockopt', config['outbounds'][0]['streamSettings'])
+                self.assertNotIn('http', [outbound['protocol'] for outbound in config['outbounds']])
+            self.assertEqual(rows['Cell C']['version'], 1)
+
     def test_login_bootstrap_excludes_cell_c_and_does_not_allocate_leases(self):
         provision_staging_networks(self.store, json.dumps({carrier:vless() for carrier in ('MTN','Telkom','Cell C')}))
         session = self.login()

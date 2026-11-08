@@ -38,6 +38,7 @@
 <form id="create" class="card" hidden><div class="eyebrow">CUSTOMER ACCESS</div><h2>Create VPN account</h2>
 <label>Username <input name="username" maxlength="40" placeholder="Enter username" required></label>
 <label>Password (12–128 characters; blank to generate) <input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>
+<label>Account type <select name="account_type"><option value="paid">Paid · 1 device</option><option value="trial">Free trial · up to 50 devices</option></select></label>
 <label>Duration in days <input name="days" type="number" min="1" max="366" value="30" required></label>
 <button class="primary">Create account</button>
 </form>
@@ -54,7 +55,7 @@
 <label>Customer name <input name="name" maxlength="100"></label>
 <label>Notes <input name="notes" maxlength="500"></label>
 <label>Expiry (UTC) <input name="expires" type="datetime-local" step="1" required></label>
-<label>Device limit <input name="device_limit" type="number" min="1" max="50" required></label>
+<p id="accountDevicePolicy" class="muted"></p>
 <label>Status <select name="state"><option value="active">Active</option><option value="suspended">Suspended</option><option value="paused">Paused</option></select></label>
 <button>Save customer</button>
 <button type="button" id="reset">Reset password</button>
