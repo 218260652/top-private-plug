@@ -267,3 +267,8 @@ Next test sequence:
 6. Repeat only on a dedicated test Trojan client if Trojan fast-path support is required.
 
 Do not alter existing customer clients or production inbounds. Keep current app lease/heartbeat enforcement until expiry, quota, revocation latency, traffic accounting, and endpoint/profile mapping are verified.
+
+
+### Disposable VLESS quota test — follow-up result (2026-11-08)
+
+The owner tested a disposable VLESS client with a 0.1 GB traffic limit. The client initially disconnected after the limit was reached, but the owner then reported that it continued working when tested again. Treat this as a failed/inconclusive hard-quota enforcement test: the limit did not reliably prevent further use/reconnection. Do not rely on 3X-UI/Xray per-client traffic limits as the sole quota enforcement mechanism for the direct-connect fast path until the behavior is reproduced, measured, and corrected. Keep the legacy backend lease/heartbeat/quota path for production profiles. Investigate whether the panel counter reset, delayed stats synchronization, Xray client state, or limit action semantics explain the result. Repeat only with a disposable test client and verify both new connections and existing-session data transfer after the threshold.
