@@ -193,3 +193,27 @@ Important reconciliation:
 - Both inbounds show one client, unlimited traffic, and infinite duration. Those settings do not currently demonstrate customer-specific quota or expiry enforcement.
 - Before integration, the owner must identify which inbound each carrier profile actually connects to. Compare the imported profile's protocol, host, port, transport, TLS server name and WS path locally against the inbound configuration. Do not share UUIDs, passwords, proxy identity headers, private keys, or tokens.
 - Do not change either live inbound. Use a separate test inbound/client for any provisioning or enforcement experiments.
+
+
+## Owner-confirmed client controls and official 3X-UI API review (2026-11-08)
+
+The owner confirms the panel UI permits editing clients and exposes controls to add clients, set per-client traffic limits and expiry, and enable/disable clients. This is a useful prerequisite, but no test client has been created and no enforcement test has been performed.
+
+The current upstream 3X-UI documentation describes:
+- unique client email identifiers;
+- UUID credentials for VLESS and passwords for Trojan;
+- per-client traffic quota and expiry;
+- clients being disabled when configured traffic or expiry limits are reached;
+- client enable/disable and traffic-management API operations;
+- a panel REST API and OpenAPI document at `/panel/api/openapi.json`.
+
+Version caveat: these are current upstream docs, not proof that the owner's installed panel build exposes identical fields or behavior. Before integration, inspect the installed version and its own API Docs/OpenAPI schema. Confirm the actual Xray enforcement behavior with a disposable test client and controlled test quota/expiry. Do not infer that client-level traffic accounting is instant or that a configured quota is effective until the test confirms the client is rejected after depletion.
+
+Security architecture:
+- The 3X-UI API token is a full-admin credential. It must remain only in the backend secret store; never embed it in the Android app or send it to a client device.
+- Backend provisioning must map one Top Private Plug subscription/device policy to a distinct 3X-UI client identity and correct inbound membership.
+- Use least privilege if the installed panel supports scoped tokens; otherwise isolate the full-admin token and expose only narrow backend operations.
+- The Android client receives only its own connection profile/credential, not panel credentials or other clients' data.
+- Credential rotation, suspension, expiry, and quota exhaustion must be tested end-to-end before disabling the current app lease/heartbeat model.
+
+Current status: owner says client-management controls are available, but no 3X-UI version, API schema, test-client result, or endpoint-to-app-profile mapping has been verified. No live client or inbound has been modified.
