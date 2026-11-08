@@ -80,6 +80,9 @@ def main():
     run(tools / 'apksigner', 'sign', '--ks', keystore, '--ks-key-alias', 'androiddebugkey', '--ks-pass', 'pass:android',
         '--key-pass', 'pass:android', '--out', output, build / 'aligned.apk')
     run(tools / 'apksigner', 'verify', '--verbose', output)
+    badging = subprocess.check_output([tools / 'aapt', 'dump', 'badging', output], text=True)
+    if "package: name='za.co.topprivateplug.test'" not in badging:
+        raise SystemExit('Refusing to publish: APK package ID is not isolated from production')
     print('Built DEBUG-SIGNED PILOT:', output)
 
 
