@@ -39,8 +39,10 @@ public final class TunnelService extends VpnService {
         return vault.staging ? vault.customerSession().optString("marker") : vault.token();
     }
 
+    private volatile String carrierCode;
 
     private void requestStop() {
+        carrierCode = null;
         reconnectAllowed = false;
         retryPending = false;
         if (retryTask != null) main.removeCallbacks(retryTask);
@@ -111,6 +113,8 @@ public final class TunnelService extends VpnService {
         if (VpnService.prepare(this) != null) { stopSelf(); return START_NOT_STICKY; }
         Vault vault = new Vault(this);
         activeProfile = intent.getStringExtra("profile_id");
+        carrierCode = vault.staging && "Cell C".equals(activeProfile) ? intent.getStringExtra("carrier_code") : null;
+        intent.removeExtra("carrier_code");
         accessToken = sessionMarker(vault); accountOrigin = vault.endpoint();
         retryAttempt = 0; reconnectAllowed = true;
         beginAttempt();
@@ -176,13 +180,15 @@ public final class TunnelService extends VpnService {
                     Api.throughTunnel(vault.endpoint(),controlPort,xray::clearUpstreamStatus);
                 }
                 ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_VIA_TUNNEL);
-            } else {
+            } else if (vault.staging && !"Cell C".equals(profileId)) {
                 ConnectionReport.stage(ConnectionReport.Stage.NO_SAVED_PROFILE);
-                if (vault.staging) throw new Exception("No saved profile. Use working internet and tap Refresh account once.");
+                throw new Exception("No saved profile. Use working internet and tap Refresh account once.");
+            } else if (!vault.staging) {
+                ConnectionReport.stage(ConnectionReport.Stage.NO_SAVED_PROFILE);
                 if(!NetworkState.validated(this)) throw new Exception("No saved connection settings for this profile. Use Wi-Fi once and tap Save connection settings before testing mobile data.");
                 progress("Saving the connection profile for first use; Wi-Fi or mobile data is needed once");
             }
-            JSONObject result = vault.staging ? new CustomerApi(vault).connect(profileId) : api.connect(profileId, this::progress);
+            JSONObject result = vault.staging ? new CustomerApi(vault).connect(profileId, carrierCode) : api.connect(profileId, this::progress);
             if (!"xray".equals(result.optString("engine"))) throw new Exception("Only imported connection profiles are supported. Ask your admin to replace this profile.");
             xrayLease=result.getString("lease"); hadLease=true;
             leaseDeadline=android.os.SystemClock.elapsedRealtime()+30000;

@@ -72,8 +72,10 @@ final class CustomerApi {
         return call("bootstrap", proof("connect")).getJSONObject("profiles");
     }
 
-    JSONObject connect(String carrier) throws Exception {
-        return call("connect", proof("connect").put("carrier", carrier));
+    JSONObject connect(String carrier, String code) throws Exception {
+        JSONObject request = proof("connect").put("carrier", carrier);
+        if ("Cell C".equals(carrier)) request.put("carrier_code", code);
+        return call("connect", request);
     }
 
     void logout() throws Exception {

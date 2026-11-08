@@ -1,6 +1,7 @@
 """Staging customer accounts and VPN authorization, isolated from legacy access codes."""
 import asyncio
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -264,7 +265,7 @@ class Customers:
             FROM customer_networks n JOIN profiles p ON p.id=n.profile
             JOIN xray_profiles x ON x.profile=p.id WHERE n.carrier IN (?,?,?) ORDER BY n.carrier""", NETWORKS):
             item = dict(row)
-            if not is_vless(json.loads(item.pop('config'))):
+            if not is_vless(json.loads(item.pop('config'))) or (item['carrier'] == CELL_C and not os.environ.get('TPP_CELL_C_CODE')):
                 item['enabled'] = item['tested'] = 0
             profiles.append(item)
         return profiles
@@ -300,7 +301,7 @@ class Customers:
                 profiles = {}
                 for profile in self.network_rows(db):
                     carrier = profile['carrier']
-                    if not profile['enabled'] or profile['insecure']:
+                    if carrier == CELL_C or not profile['enabled'] or profile['insecure']:
                         continue
                     profiles[carrier] = self.connection_config(db, profile)
                 return {'profiles': profiles}
@@ -336,6 +337,12 @@ class Customers:
         p = next((profile for profile in self.network_rows(db) if profile['carrier']==carrier), None)
         if not p or not p['enabled'] or p['insecure']:
             raise Fault('This network profile is unavailable', 403)
+        if carrier == CELL_C:
+            code = data.get('carrier_code')
+            expected = os.environ.get('TPP_CELL_C_CODE', '')
+            if (not expected or not isinstance(code, str) or len(code) > 128
+                    or not secrets.compare_digest(code.encode('utf-8', 'surrogatepass'), expected.encode())):
+                raise Fault('Incorrect Cell C code', 403)
         entry = db.execute('SELECT expires,seen,session FROM customer_leases WHERE device=?', (row['device'],)).fetchone()
         # A failed startup may never send its first heartbeat or disconnect.
         # Only the same device-bound session may replace that pending lease.
@@ -537,6 +544,8 @@ def install(app, store, peer, body, token):
         if op == 'refresh':
             service.attempt('refresh:' + digest(source), 90, 60)
             return service.refresh(data)
+        if op == 'connect' and data.get('carrier') == CELL_C:
+            service.attempt('cell-c:' + digest(source), 20, 60)
         if op in ('subscription','status'):
             op = 'profile'
         return service.customer(op,bearer,data)

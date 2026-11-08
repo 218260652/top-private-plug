@@ -51,6 +51,7 @@ public final class CustomerActivity extends Activity {
     private Button connect, disconnect;
     private String carrier = "MTN";
     private String pendingCarrier;
+    private String pendingCode;
     private boolean busy;
     private final Runnable ticker = new Runnable() {
         @Override public void run() { updateTunnel(); handler.postDelayed(this, 1000); }
@@ -435,7 +436,28 @@ public final class CustomerActivity extends Activity {
     }
 
     private void prepare() {
-        pendingCarrier = carrier;
+        if ("Cell C".equals(carrier)) {
+            EditText code = new EditText(this);
+            code.setHint("Cell C code");
+            code.setSingleLine(true);
+            code.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            code.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+            new AlertDialog.Builder(this).setTitle("Unlock Cell C").setView(code)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Connect", (dialog, which) -> {
+                    String value = code.getText().toString().trim();
+                    code.setText("");
+                    if (value.isEmpty()) { message.setText("Enter the Cell C code."); return; }
+                    requestVpnPermission("Cell C", value);
+                }).show();
+            return;
+        }
+        requestVpnPermission(carrier, null);
+    }
+
+    private void requestVpnPermission(String network, String code) {
+        pendingCarrier = network;
+        pendingCode = code;
         Intent permission = VpnService.prepare(this);
         if (permission == null) startTunnel();
         else startActivityForResult(permission, 21);
@@ -443,8 +465,15 @@ public final class CustomerActivity extends Activity {
 
     private void startTunnel() {
         if (pendingCarrier == null || !vault.customerSession().has("marker")) return;
+        if ("Cell C".equals(pendingCarrier) && pendingCode == null) {
+            pendingCarrier = null;
+            message.setText("Enter the Cell C code again.");
+            return;
+        }
         Intent tunnelIntent = new Intent(this, TunnelService.class).putExtra("profile_id", pendingCarrier);
+        if (pendingCode != null) tunnelIntent.putExtra("carrier_code", pendingCode);
         pendingCarrier = null;
+        pendingCode = null;
         startForegroundService(tunnelIntent);
     }
 
@@ -458,7 +487,7 @@ public final class CustomerActivity extends Activity {
         super.onActivityResult(request, result, data);
         if (request != 21) return;
         if (result == RESULT_OK) startTunnel();
-        else { pendingCarrier = null; message.setText("VPN permission was declined."); }
+        else { pendingCarrier = null; pendingCode = null; message.setText("VPN permission was declined."); }
     }
 
     private void updateTunnel() {
