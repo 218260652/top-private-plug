@@ -14,7 +14,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 final class Vault {
-    static final String DEFAULT_SERVICE_ORIGIN = "";
+    static final String DEFAULT_SERVICE_ORIGIN = "https://top-private-plug-test-api.onrender.com";
     private final SharedPreferences prefs;
     Vault(Context context) {
         prefs = context.getSharedPreferences("tpp", Context.MODE_PRIVATE);
