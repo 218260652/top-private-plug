@@ -56,7 +56,7 @@ final class Vault {
         try { return decrypt(prefs.getString("token", "")); } catch(Exception error) { return ""; }
 
     } }
-    private static String memoryCustomerSession;
+    private static String memoryCustomerSession, memoryCustomerCache;
 
     JSONObject customerSession() {
         synchronized (Vault.class) {
@@ -70,10 +70,60 @@ final class Vault {
             boolean persist = value != null && value.optBoolean("persist", true);
             if (persist) edit.putString("customer_session", encrypt(value.toString()));
             else edit.remove("customer_session");
+            if (value == null || !value.optString("marker").equals(customerSession().optString("marker"))) {
+                memoryCustomerCache = null;
+                edit.remove("customer_bootstrap");
+            }
             if (!edit.commit()) throw new Exception("Could not save the session on this phone.");
             memoryCustomerSession = value != null && !persist ? value.toString() : null;
         }
     }
+    JSONObject customerCache() {
+        synchronized (Vault.class) {
+            try {
+                JSONObject data = new JSONObject(memoryCustomerCache != null ? memoryCustomerCache
+                    : decrypt(prefs.getString("customer_bootstrap", "")));
+                JSONObject session = customerSession();
+                if (session.has("marker") && session.optString("marker").equals(data.optString("marker"))
+                        && data.getJSONObject("account").getLong("expires") > System.currentTimeMillis() / 1000)
+                    return data;
+            } catch (Exception ignored) {}
+            return new JSONObject();
+        }
+    }
+
+    void saveCustomerCatalog(String marker, JSONObject account, JSONArray networks, JSONObject profiles) throws Exception {
+        synchronized (Vault.class) {
+            JSONObject cache = customerCache();
+            JSONObject old = cache.optJSONObject("profiles");
+            if (old != null && old.has("Cell C") && cache.optBoolean("cell_cached"))
+                profiles.put("Cell C", old.getJSONObject("Cell C"));
+            writeCustomerCache(marker, new JSONObject().put("account", account).put("networks", networks)
+                .put("profiles", profiles).put("cell_cached", profiles.has("Cell C")));
+        }
+    }
+
+    void saveCustomerConnection(String marker, String carrier, JSONObject config) throws Exception {
+        synchronized (Vault.class) {
+            JSONObject data = customerCache();
+            JSONObject profiles = data.optJSONObject("profiles");
+            if (profiles == null || !data.optString("marker").equals(marker)) return;
+            profiles.put(carrier, config);
+            if ("Cell C".equals(carrier)) data.put("cell_cached", true);
+            writeCustomerCache(marker, data);
+        }
+    }
+
+    private void writeCustomerCache(String marker, JSONObject data) throws Exception {
+        JSONObject session = customerSession();
+        if (marker.isEmpty() || !marker.equals(session.optString("marker"))) return;
+        data.put("marker", marker);
+        if (session.optBoolean("persist", true)) {
+            if (!prefs.edit().putString("customer_bootstrap", encrypt(data.toString())).commit())
+                throw new Exception("Could not save connection profiles on this phone.");
+        } else memoryCustomerCache = data.toString();
+    }
+
     private String scope() throws Exception {
         byte[] value=java.security.MessageDigest.getInstance("SHA-256").digest((endpoint()+"\n"+token()).getBytes("UTF-8"));
         return Base64.encodeToString(value,Base64.NO_WRAP);

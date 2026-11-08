@@ -20,7 +20,7 @@ final class ConnectionReport {
     private static String route(String path) {
         for (String allowed : new String[]{"/v1/challenge", "/v1/connect", "/v1/activate", "/v1/status",
                 "/v1/profiles", "/v1/xray/heartbeat", "/v1/xray/disconnect",
-                "/v2/customer/challenge", "/v2/customer/connect", "/v2/customer/heartbeat", "/v2/customer/disconnect"})
+                "/v2/customer/challenge", "/v2/customer/bootstrap", "/v2/customer/connect", "/v2/customer/heartbeat", "/v2/customer/disconnect"})
             if (allowed.equals(path)) return allowed;
         return "other account request";
     }
