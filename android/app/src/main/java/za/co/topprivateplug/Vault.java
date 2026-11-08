@@ -15,10 +15,15 @@ import javax.crypto.spec.GCMParameterSpec;
 
 final class Vault {
     static final String DEFAULT_SERVICE_ORIGIN = "https://top-private-plug-admin.onrender.com";
+    static final String STAGING_ORIGIN = "https://top-private-plug-test-api.onrender.com";
     private final SharedPreferences prefs;
-    Vault(Context context) { prefs = context.getSharedPreferences("tpp", Context.MODE_PRIVATE); }
-    String endpoint() { return prefs.getString("endpoint", DEFAULT_SERVICE_ORIGIN); }
-    void endpoint(String value) { synchronized(Vault.class) { prefs.edit().putString("endpoint", value).remove("token").remove("catalog").remove("bootstrap").remove("history").commit();
+    final boolean staging;
+    Vault(Context context) {
+        prefs = context.getSharedPreferences("tpp", Context.MODE_PRIVATE);
+        staging = "za.co.topprivateplug.test".equals(context.getPackageName());
+    }
+    String endpoint() { return staging ? STAGING_ORIGIN : prefs.getString("endpoint", DEFAULT_SERVICE_ORIGIN); }
+    void endpoint(String value) { if (staging) return; synchronized(Vault.class) { prefs.edit().putString("endpoint", value).remove("token").remove("catalog").remove("bootstrap").remove("history").commit();
     } }
     private SecretKey key() throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);
@@ -51,6 +56,20 @@ final class Vault {
         try { return decrypt(prefs.getString("token", "")); } catch(Exception error) { return ""; }
 
     } }
+    JSONObject customerSession() {
+        synchronized (Vault.class) {
+            try { return new JSONObject(decrypt(prefs.getString("customer_session", ""))); }
+            catch (Exception ignored) { return new JSONObject(); }
+        }
+    }
+    void customerSession(JSONObject value) throws Exception {
+        synchronized (Vault.class) {
+            SharedPreferences.Editor edit = prefs.edit();
+            if (value == null) edit.remove("customer_session");
+            else edit.putString("customer_session", encrypt(value.toString()));
+            if (!edit.commit()) throw new Exception("Could not save the session on this phone.");
+        }
+    }
     private String scope() throws Exception {
         byte[] value=java.security.MessageDigest.getInstance("SHA-256").digest((endpoint()+"\n"+token()).getBytes("UTF-8"));
         return Base64.encodeToString(value,Base64.NO_WRAP);
