@@ -17,6 +17,14 @@ final class Api {
     }
     interface Progress { void stage(String message) throws Exception; }
     private static volatile ControlRoute tunnelRoute;
+    private static final java.util.concurrent.ConcurrentHashMap<Thread, HttpsURLConnection> REQUESTS =
+        new java.util.concurrent.ConcurrentHashMap<>();
+
+    static void cancelRequest(Thread owner) {
+        if (owner == null) return;
+        HttpsURLConnection active = REQUESTS.remove(owner);
+        if (active != null) active.disconnect();
+    }
     static final class ControlRoute {
         final String endpoint; final Proxy proxy; final Runnable beforeRequest;
         ControlRoute(String endpoint,int port,Runnable beforeRequest) { this.beforeRequest=beforeRequest;this.endpoint=endpoint; proxy=new Proxy(Proxy.Type.HTTP,new InetSocketAddress("127.0.0.1",port)); }
@@ -53,7 +61,10 @@ final class Api {
         if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + bearer);
         ConnectionReport.request(path, 0, route!=null);
         boolean consumed=false;
+        Thread owner = Thread.currentThread();
+        REQUESTS.put(owner, connection);
         try {
+            if (owner.isInterrupted()) throw new InterruptedException("Account request canceled.");
             if (data != null) {
                 connection.setRequestMethod("POST"); connection.setDoOutput(true);
                 connection.setRequestProperty("Content-Type", "application/json");
@@ -80,7 +91,10 @@ final class Api {
         } catch (java.io.IOException error) {
             ConnectionReport.failure(path, error);
             throw new Exception("Cannot reach the account service (" + ConnectionReport.category(error) + "). Account verification could not complete. Open Connection report for details. Your saved access has not been removed.", error);
-        } finally { if(!consumed)connection.disconnect(); }
+        } finally {
+            REQUESTS.remove(owner, connection);
+            if (!consumed) connection.disconnect();
+        }
     }
     JSONObject proof(String purpose) throws Exception {
         return proof(purpose, null);

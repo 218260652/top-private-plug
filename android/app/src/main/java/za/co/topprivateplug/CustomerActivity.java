@@ -386,6 +386,7 @@ public final class CustomerActivity extends Activity {
         gap(16);
         connect = button("CONNECT", this::prepare);
         disconnect = button("DISCONNECT", this::stopTunnel);
+        disconnect.setOnClickListener(view -> stopTunnel());
         gap(10);
         tunnel = label("", 15);
         tunnel.setGravity(Gravity.CENTER);
@@ -476,7 +477,11 @@ public final class CustomerActivity extends Activity {
         startForegroundService(tunnelIntent);
     }
 
-    private void stopTunnel() { stopService(new Intent(this, TunnelService.class)); }
+    private void stopTunnel() {
+        if (!"Disconnected".equals(TunnelService.state)) {
+            startService(new Intent(this, TunnelService.class).setAction("STOP"));
+        }
+    }
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
@@ -498,11 +503,11 @@ public final class CustomerActivity extends Activity {
         tunnel.setTextColor("Connected".equals(state) ? 0xff68ec78 : MUTED);
         connect.setVisibility(idle ? View.VISIBLE : View.GONE);
         disconnect.setVisibility(idle ? View.GONE : View.VISIBLE);
-        disconnect.setText("Connected".equals(state) ? "DISCONNECT" : "CANCEL");
+        disconnect.setText("Disconnecting".equals(state) ? "DISCONNECTING…" : "Connected".equals(state) ? "DISCONNECT" : "CANCEL");
         connect.setEnabled(!busy && selectedAvailable());
         connect.setAlpha(connect.isEnabled() ? 1f : .55f);
         if (idle && !selectedAvailable()) tunnel.append("\n" + carrier + " profile unavailable");
-        disconnect.setEnabled(!busy);
+        disconnect.setEnabled(!"Disconnecting".equals(state));
         int[] colors = {0xffffda14, 0xffff7b22, 0xff119af7};
         for (int i = 0; i < CARRIERS.length; i++) {
             Button tile = tiles[i];

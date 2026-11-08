@@ -34,7 +34,8 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 public class ShutdownHarness {
     static final int STOP_FOREGROUND_REMOVE=1;
-    static class Api { static void clearTunnel(){} }
+    static class Api { static void clearTunnel(){} static void cancelRequest(Thread owner){cancellations.countDown();} }
+    static final CountDownLatch cancellations=new CountDownLatch(1);
     final AtomicBoolean running=new AtomicBoolean(true), stopping=new AtomicBoolean(false);
     final Object xrayLock=new Object();
     final FakeMain main=new FakeMain();
@@ -63,9 +64,11 @@ public class ShutdownHarness {
         CountDownLatch locked=new CountDownLatch(1), unlock=new CountDownLatch(1);
         Thread nativeStart=new Thread(()->{synchronized(s.xrayLock){locked.countDown();try{unlock.await();}catch(Exception e){throw new RuntimeException(e);}}});
         nativeStart.setDaemon(true);nativeStart.start();locked.await();
+        s.worker=new Thread(() -> {});
         long start=System.nanoTime();s.stopTunnel();
         check(TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-start)<250,"Cancel blocked on startup lock");
         check(!s.running.get(),"Cancel did not stop work");
+        check(cancellations.await(2,TimeUnit.SECONDS),"Active account request was not canceled");
         check(s.state.equals("Disconnecting"),"Reconnect allowed before native cleanup");
         s.stopTunnel(); // Android onDestroy/onRevoke may repeat cancellation.
         unlock.countDown();check(engine.entered.await(2,TimeUnit.SECONDS),"Native shutdown not scheduled");

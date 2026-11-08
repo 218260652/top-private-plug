@@ -38,6 +38,9 @@ final class ConnectionReport {
             if (error instanceof java.net.SocketTimeoutException) return "NETWORK_TIMEOUT";
             if (error instanceof javax.net.ssl.SSLException) return "TLS_HANDSHAKE";
             if (error instanceof java.net.ConnectException) return "TCP_CONNECT";
+            if (error instanceof java.io.EOFException) return "TRANSPORT_EOF";
+            if (error instanceof java.net.ProtocolException) return "HTTP_PROTOCOL";
+            if (error instanceof java.net.SocketException) return "SOCKET_CLOSED_OR_RESET";
             if (error instanceof java.io.InterruptedIOException || error instanceof InterruptedException) return "INTERRUPTED";
         }
         return "OTHER_ERROR";

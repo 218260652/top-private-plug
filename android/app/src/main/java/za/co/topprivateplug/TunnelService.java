@@ -46,6 +46,7 @@ public final class TunnelService extends VpnService {
         reconnectAllowed = false;
         retryPending = false;
         if (retryTask != null) main.removeCallbacks(retryTask);
+        if (!"Disconnected".equals(state)) detail = "Closing the VPN connection…";
         stopTunnel();
     }
 
@@ -94,6 +95,7 @@ public final class TunnelService extends VpnService {
         stopping.set(true);
         if (foreground) { stopForeground(STOP_FOREGROUND_REMOVE); foreground = false; }
         state = "Disconnected";
+        if ("Closing the VPN connection…".equals(detail)) detail = "";
         stopSelf();
     }
 
@@ -337,10 +339,14 @@ public final class TunnelService extends VpnService {
         if (worker != null && worker != Thread.currentThread()) worker.interrupt();
         // Native startup holds xrayLock and stopLoop can wait on native I/O.
         // Lifecycle callbacks must never acquire that lock or call native shutdown.
+        Thread previous = worker;
+        if (previous != null) {
+            // Closing the HTTPS request must not block the Android main thread or TUN teardown.
+            new Thread(() -> Api.cancelRequest(previous), "tpp-account-cancel").start();
+        }
         new Thread(() -> {
             try {
                 closeTransport();
-                Thread previous = worker;
                 if (previous != null && previous != Thread.currentThread()) {
                     try { previous.join(); } catch (InterruptedException cancelled) { Thread.currentThread().interrupt(); }
                 }
