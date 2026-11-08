@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from aiohttp.test_utils import AioHTTPTestCase
 
@@ -61,11 +62,11 @@ class CustomerStoreCases:
         self.assertEqual(session['account']['must_change'],0)
         self.assertNotIn('password',session['account'])
         self.assertNotIn('notes',session['account'])
-        self.assertEqual([p['carrier'] for p in self.call('networks',session)['networks']],['MTN','Telkom'])
+        self.assertEqual([p['carrier'] for p in self.call('networks',session)['networks']],['MTN','Telkom','Cell C'])
         updated = self.call('password',session,{**self.signed('password'),'password':REPLACEMENT})
         self.assert_fault(401,lambda: self.call('profile',session))
         self.assert_fault(409,lambda: self.login(device=device(),password=REPLACEMENT))
-        self.assertEqual(len(self.call('networks',updated)['networks']),2)
+        self.assertEqual(len(self.call('networks',updated)['networks']),3)
         self.call('logout',updated)
         self.assert_fault(401,lambda: self.call('profile',updated))
 
@@ -118,6 +119,21 @@ class CustomerStoreCases:
         self.now += 2
         self.assert_fault(403,lambda: self.call('heartbeat',session,{'lease':result['lease']}))
         self.assert_fault(403,lambda: self.call('connect',session,{**self.signed('connect'),'carrier':'MTN'}))
+
+    def test_cell_c_connection_requires_server_configured_code(self):
+        profile = save(self.store, {'name':'Cell C fixture','carrier':'Cell C','config':vless()})
+        self.service.admin('network','owner',{'carrier':'Cell C','profile':profile['id']})
+        session = self.login()
+
+        def connect(**values):
+            return self.call('connect', session, {**self.signed('connect'), 'carrier':'Cell C', **values})
+
+        with patch.dict(os.environ, {'TPP_CELL_C_CODE':''}):
+            self.assert_fault(403, lambda: connect(carrier_code='fixture-code'))
+        with patch.dict(os.environ, {'TPP_CELL_C_CODE':'fixture-code'}):
+            self.assert_fault(403, connect)
+            self.assert_fault(403, lambda: connect(carrier_code='wrong'))
+            self.assertEqual(connect(carrier_code='fixture-code')['engine'], 'xray')
 
     def test_pause_renew_resume_suspend_and_delete(self):
         session = self.login()
