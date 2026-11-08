@@ -87,9 +87,7 @@ async function overview() {
   row($('overview'), 'Database: ' + summary.database);
   events($('events'), summary.events);
   $('planList').replaceChildren();
-  $('plans').replaceChildren(new Option('Custom duration', ''));
   for (const plan of summary.plans) {
-    $('plans').add(new Option(plan.name + ' · ' + plan.days + ' days', plan.id));
     row($('planList'), plan.name + ' · ' + plan.days + ' days · ' + (plan.price_cents / 100).toFixed(2),
       () => {
         selectedPlan = plan.id;
@@ -144,7 +142,11 @@ async function detail(id) {
   const edit = $('edit').elements;
   for (const key of ['name', 'notes', 'device_limit']) edit[key].value = user[key];
   edit.expires.value = new Date(user.expires * 1000).toISOString().slice(0, 19);
-  edit.state.value = user.state === 'active' ? 'active' : 'suspended';
+  edit.state.value = user.state;
+  $('resume').hidden = !['paused', 'suspended'].includes(user.state);
+  $('pause').hidden = ['paused', 'suspended', 'revoked'].includes(user.state);
+  $('suspend').hidden = ['suspended', 'revoked'].includes(user.state);
+  $('renew').hidden = user.state === 'revoked';
   for (const element of edit) element.disabled = user.state === 'revoked';
   $('devices').replaceChildren();
   for (const device of data.devices) {
@@ -172,7 +174,7 @@ $('search').addEventListener('submit', safe(list));
 $('create').addEventListener('submit', safe(async () => {
   const data = fields($('create'));
   data.days = Number(data.days);
-  data.device_limit = Number(data.device_limit);
+  data.device_limit = 1;
   const result = await customer('create', data);
   $('create').reset();
   await list();
@@ -189,6 +191,28 @@ $('edit').addEventListener('submit', safe(async () => {
   await list();
   await overview();
 }));
+async function lifecycle(action, extra = {}) {
+  const id = selected;
+  await customer('lifecycle', { id, action, ...extra });
+  if (action === 'delete') {
+    selected = '';
+    $('detail').hidden = true;
+    clearTemporary();
+  } else await detail(id);
+  await list();
+  await overview();
+  message('Account updated.');
+}
+
+$('renew').addEventListener('submit', safe(() => lifecycle('renew', { days: Number(fields($('renew')).days) })));
+for (const action of ['pause', 'suspend', 'resume']) {
+  $(action).addEventListener('click', safe(() => lifecycle(action)));
+}
+$('delete').addEventListener('click', safe(async () => {
+  if (!confirm('Remove this account from the dashboard and revoke its access? The audit history will be retained.')) return;
+  await lifecycle('delete');
+}));
+
 $('revoke').addEventListener('click', safe(async () => {
   if (!confirm('Permanently revoke this account and all its sessions?')) return;
   await customer('update', { id: selected, state: 'revoked' });

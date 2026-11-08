@@ -118,6 +118,30 @@ class CustomerStoreCases:
         self.assert_fault(403,lambda: self.call('heartbeat',session,{'lease':result['lease']}))
         self.assert_fault(403,lambda: self.call('connect',session,{**self.signed('connect'),'carrier':'MTN'}))
 
+    def test_pause_renew_resume_suspend_and_delete(self):
+        session = self.login()
+        def action(name, **data):
+            self.service.admin('lifecycle','owner',{'action':name,**data},self.user)
+        def account():
+            return self.service.admin('user','owner',{},self.user)['user']
+        expires = account()['expires']
+        action('pause')
+        self.assertEqual(account()['status'],'paused')
+        self.assert_fault(401,lambda: self.call('profile',session))
+        self.assert_fault(403,self.login)
+        action('renew',days=7)
+        self.assertEqual(account()['expires'],expires+7*86400)
+        self.assertEqual(account()['status'],'paused')
+        action('resume')
+        self.assertEqual(account()['status'],'active')
+        action('suspend')
+        self.assertEqual(account()['status'],'suspended')
+        action('delete')
+        self.assert_fault(404,account)
+        self.assertEqual(self.service.admin('users','owner',{},query='example')['users'],[])
+        audit = self.service.admin('overview','owner',{})['events']
+        self.assertIn('customer_delete',{item['action'] for item in audit})
+
     def test_limit_and_parameterized_search(self):
         for _ in range(8):
             self.assert_fault(401,lambda: self.login(password='wrong'))

@@ -289,9 +289,11 @@ class Customers:
             if op not in ('overview','users','user'):
                 db.execute('BEGIN IMMEDIATE')
             if op == 'overview':
-                counts = {key:0 for key in ('active','expired','suspended','revoked','pending')}
+                counts = {key:0 for key in ('active','expired','paused','suspended','revoked','pending')}
                 for row in db.execute('SELECT state,starts,expires FROM customer_users'):
-                    counts[state(row,now)] += 1
+                    status = state(row,now)
+                    if status != 'deleted':
+                        counts[status] += 1
                 return {'counts':counts,'registered_devices':db.execute('SELECT COUNT(*) FROM customer_devices WHERE revoked=0').fetchone()[0],
                         'recent_client_heartbeats':db.execute('SELECT COUNT(*) FROM customer_leases WHERE expires>? AND seen>?',(now,now-15)).fetchone()[0],
                         'gateway_connection_count':None,'database':'reachable',
@@ -303,9 +305,9 @@ class Customers:
             if op == 'users':
                 needle = query.lower()[:80]
                 return {'users':[view(r,now) for r in db.execute("""SELECT * FROM customer_users
-                    WHERE strpos(username,?)>0 OR strpos(lower(name),?)>0 ORDER BY created DESC,id DESC LIMIT 100"""
+                    WHERE state<>'deleted' AND (strpos(username,?)>0 OR strpos(lower(name),?)>0) ORDER BY created DESC,id DESC LIMIT 100"""
                     if self.store.postgres else """SELECT * FROM customer_users
-                    WHERE instr(username,?)>0 OR instr(lower(name),?)>0 ORDER BY created DESC,id DESC LIMIT 100""",(needle,needle))]}
+                    WHERE state<>'deleted' AND (instr(username,?)>0 OR instr(lower(name),?)>0) ORDER BY created DESC,id DESC LIMIT 100""",(needle,needle))]}
             if op == 'plan':
                 name = self.label(data.get('name'),80)
                 days = bounded(data.get('days'),1,366,'plan days')
@@ -360,6 +362,29 @@ class Customers:
             row = db.execute('SELECT * FROM customer_users WHERE id=?',(customer,)).fetchone()
             if not row:
                 raise Fault('Customer not found',404)
+            if row['state'] == 'deleted':
+                raise Fault('Customer not found',404)
+            if op == 'lifecycle':
+                action = data.get('action')
+                if row['state'] == 'revoked' and action != 'delete':
+                    raise Fault('Account is revoked',409)
+                changes = {'pause':'paused','suspend':'suspended','resume':'active','delete':'deleted'}
+                if action == 'renew':
+                    days = bounded(data.get('days'),1,366,'renewal days')
+                    expiry = max(now,row['expires']) + days*86400
+                    db.execute('UPDATE customer_users SET expires=? WHERE id=?',(expiry,customer))
+                elif isinstance(action,str) and action in changes:
+                    if action == 'resume' and row['state'] not in ('paused','suspended'):
+                        raise Fault('Only paused or suspended accounts can be resumed',409)
+                    db.execute('UPDATE customer_users SET state=? WHERE id=?',(changes[action],customer))
+                    if action != 'resume':
+                        self.revoke(db,customer)
+                    if action == 'delete':
+                        db.execute('UPDATE customer_devices SET revoked=1 WHERE customer=?',(customer,))
+                else:
+                    raise Fault('Invalid account action')
+                event(db,now,actor,customer,'customer_' + action)
+                return {'ok':True}
             if op == 'user':
                 return {'user':view(row,now),'devices':self.devices(db,customer),
                         'events':[dict(r) for r in db.execute('SELECT * FROM customer_events WHERE subject=? ORDER BY at DESC,id DESC LIMIT 50',(customer,))]}
@@ -377,7 +402,7 @@ class Customers:
             if row['state']=='revoked':
                 raise Fault('Account is revoked',409)
             current_state = data.get('state',row['state'])
-            if current_state not in ('active','suspended','revoked'):
+            if current_state not in ('active','paused','suspended','revoked'):
                 raise Fault('Invalid account status')
             expires = bounded(data.get('expires',row['expires']),row['starts'],now+3660*86400,'subscription expiry')
             limit = bounded(data.get('device_limit',row['device_limit']),1,50,'device limit')
@@ -442,7 +467,7 @@ def install(app, store, peer, body, token):
 
     async def admin_api(request):
         op = request.match_info['op']
-        allowed = {'overview','users','user'} if request.method=='GET' else {'create','update','reset','revoke-device','network','plan'}
+        allowed = {'overview','users','user'} if request.method=='GET' else {'create','update','reset','revoke-device','network','plan','lifecycle'}
         if op not in allowed:
             raise web.HTTPNotFound()
         data = await body(request) if request.method=='POST' else {}
