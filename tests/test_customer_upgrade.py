@@ -184,6 +184,17 @@ class CustomerStoreCases:
                 self.assertNotIn('http', [outbound['protocol'] for outbound in config['outbounds']])
             self.assertEqual(rows['Cell C']['version'], 1)
 
+        provision_staging_networks(self.store, payload)
+        provision_staging_networks(self.store, payload)
+        with self.store.db() as db:
+            rows = {row['carrier']: row for row in self.service.network_rows(db)}
+            for carrier in ('MTN', 'Telkom'):
+                self.assertEqual(rows[carrier]['version'], 3)
+                config = self.service.connection_config(db, rows[carrier])
+                self.assertEqual(config['outbounds'][0]['streamSettings']['sockopt']['dialerProxy'],
+                                 'http-upstream')
+            self.assertEqual(rows['Cell C']['version'], 1)
+
     def test_login_bootstrap_excludes_cell_c_and_does_not_allocate_leases(self):
         provision_staging_networks(self.store, json.dumps({carrier:vless() for carrier in ('MTN','Telkom','Cell C')}))
         session = self.login()

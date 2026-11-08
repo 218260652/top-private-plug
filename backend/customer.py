@@ -1,4 +1,5 @@
 """Staging customer accounts and VPN authorization, isolated from legacy access codes."""
+import copy
 import asyncio
 import json
 import os
@@ -107,15 +108,18 @@ def provision_staging_networks(store, raw, direct_mtn_telkom=False):
         profiles = json.loads(raw)
         if not isinstance(profiles, dict) or not profiles or set(profiles) - set(NETWORKS):
             raise ValueError()
-        if direct_mtn_telkom:
-            for carrier in ('MTN', 'Telkom'):
-                if carrier not in profiles:
-                    continue
-                for outbound in profiles[carrier]['outbounds']:
-                    if outbound['protocol'] == 'vless':
-                        outbound.pop('proxySettings', None)
-                        outbound['streamSettings'].get('sockopt', {}).pop('dialerProxy', None)
         normalized = {carrier: xray.normalize(profile) for carrier, profile in profiles.items()}
+        direct_configs = {}
+        for carrier in ('MTN', 'Telkom'):
+            if carrier not in normalized:
+                continue
+            config = copy.deepcopy(normalized[carrier][0])
+            stream = config['outbounds'][0]['streamSettings']
+            if 'sockopt' not in stream:
+                continue
+            proxy_tag = stream.pop('sockopt')['dialerProxy']
+            config['outbounds'] = [outbound for outbound in config['outbounds'] if outbound['tag'] != proxy_tag]
+            direct_configs[carrier] = config
         if any(not is_vless(config) or insecure for config, _, _, _, insecure in normalized.values()):
             raise ValueError()
     except (ValueError, KeyError, TypeError, AttributeError, Fault):
@@ -124,17 +128,23 @@ def provision_staging_networks(store, raw, direct_mtn_telkom=False):
     with store.db() as db:
         db.execute('BEGIN IMMEDIATE')
         for carrier, (config, address, port, sni, insecure) in normalized.items():
+            direct_config = direct_configs.get(carrier)
+            selected = direct_config if direct_mtn_telkom and direct_config is not None else config
             current = db.execute('''SELECT p.id,p.name,x.config FROM customer_networks n
                 JOIN profiles p ON p.id=n.profile JOIN xray_profiles x ON x.profile=p.id
                 WHERE n.carrier=?''', (carrier,)).fetchone()
             if current:
-                if (not direct_mtn_telkom or carrier not in ('MTN', 'Telkom')
-                        or current['name'] != carrier + ' staging' or json.loads(current['config']) == config):
+                if current['name'] != carrier + ' staging':
+                    continue
+                current_config = json.loads(current['config'])
+                # Only switch an existing seeded profile between the two modes
+                # of the same source. Leave separately managed assignments alone.
+                if direct_config is None or current_config not in (config, direct_config) or current_config == selected:
                     continue
                 db.execute('UPDATE profiles SET server=?,port=?,sni=?,version=version+1 WHERE id=?',
                            (address, port, sni, current['id']))
                 db.execute('UPDATE xray_profiles SET config=?,insecure=? WHERE profile=?',
-                           (json.dumps(config), int(insecure), current['id']))
+                           (json.dumps(selected), int(insecure), current['id']))
                 db.execute('UPDATE customer_networks SET tested=0 WHERE carrier=?', (carrier,))
                 db.execute('DELETE FROM customer_leases WHERE carrier=?', (carrier,))
                 event(db, store.now(), 'staging-setup', carrier, 'network_updated')
@@ -143,7 +153,7 @@ def provision_staging_networks(store, raw, direct_mtn_telkom=False):
             db.execute('INSERT INTO profiles(id,name,carrier,server,port,sni,tls_min,enabled) VALUES(?,?,?,?,?,?,?,1)',
                        (profile, carrier + ' staging', carrier, address, port, sni, '1.2'))
             db.execute('INSERT INTO xray_profiles(profile,config,insecure) VALUES(?,?,?)',
-                       (profile, json.dumps(config), int(insecure)))
+                       (profile, json.dumps(selected), int(insecure)))
             db.execute('INSERT INTO customer_networks(carrier,profile,tested) VALUES(?,?,0)', (carrier, profile))
             event(db, store.now(), 'staging-setup', carrier, 'network_configured')
 

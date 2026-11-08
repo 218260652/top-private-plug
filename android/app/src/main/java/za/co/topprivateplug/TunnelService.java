@@ -269,8 +269,14 @@ public final class TunnelService extends VpnService {
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
         // Use the pinned core's HTTPS connectivity target. Admin-host reachability
         // is checked independently by authenticated API calls and heartbeats.
-        latency = engine.probe("");
-        if (latency < 0) throw new RetryPolicy.TransportFailure("The tunnel HTTPS check failed.");
+        try {
+            latency = engine.probe("");
+            if (latency < 0) throw new RetryPolicy.TransportFailure("The tunnel HTTPS check failed.");
+        } catch (Exception error) {
+            ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_FAILED);
+            throw error;
+        }
+        ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_OK);
         if (customer != null) {
             if (!running.get()) return;
             JSONObject check = customer.call("heartbeat", new JSONObject().put("lease", lease));
