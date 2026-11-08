@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,7 +8,7 @@ from unittest.mock import patch
 from aiohttp.test_utils import AioHTTPTestCase
 
 from backend.app import create_app
-from backend.customer import Customers, migrate
+from backend.customer import Customers, migrate, provision_staging_networks
 from backend.store import Fault, Store
 from backend.xray import save
 from tests.test_control import device, proof
@@ -119,6 +120,19 @@ class CustomerStoreCases:
         self.now += 2
         self.assert_fault(403,lambda: self.call('heartbeat',session,{'lease':result['lease']}))
         self.assert_fault(403,lambda: self.call('connect',session,{**self.signed('connect'),'carrier':'MTN'}))
+
+    def test_staging_profiles_seed_missing_networks_without_overwriting(self):
+        raw = json.dumps({'MTN':vless(), 'Telkom':vless()})
+        provision_staging_networks(self.store, raw)
+        with self.store.db() as db:
+            first = self.service.network_rows(db)
+        provision_staging_networks(self.store, raw)
+        with self.store.db() as db:
+            self.assertEqual(first, self.service.network_rows(db))
+        self.assertEqual([(p['carrier'], p['enabled'], p['tested']) for p in first],
+                         [('MTN', 1, 0), ('Telkom', 1, 0)])
+        result = self.call('connect', self.login(), {**self.signed('connect'), 'carrier':'Telkom'})
+        self.assertEqual(result['config']['outbounds'][0]['protocol'], 'vless')
 
     def test_cell_c_connection_requires_server_configured_code(self):
         profile = save(self.store, {'name':'Cell C fixture','carrier':'Cell C','config':vless()})
