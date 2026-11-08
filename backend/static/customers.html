@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Top Private Plug | Customer administration</title>
+<link rel="stylesheet" href="/assets/style.css">
+<script defer src="/assets/customers.js"></script>
+</head>
+<body>
+<main>
+<h1>Top Private Plug</h1>
+<p>Staging customer administration · <a href="/admin/legacy/">Legacy accounts and profile imports</a></p>
+<p id="message" role="status" aria-live="polite"></p>
+<form id="login">
+<h2>Administrator sign-in</h2>
+<label>Username <input name="username" autocomplete="username" required></label>
+<label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+<label>One-time code <input name="otp" autocomplete="one-time-code" inputmode="numeric"></label>
+<button>Sign in</button>
+</form>
+<div id="dashboard" hidden>
+<button id="logout" type="button">Sign out</button>
+<h2>Overview</h2><ul id="overview"></ul>
+<h2>Create customer</h2>
+<form id="create">
+<label>Username <input name="username" maxlength="40" required></label>
+<label>Customer name <input name="name" maxlength="100"></label>
+<label>Temporary password (blank to generate) <input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>
+<label>Duration in days <input name="days" type="number" min="1" max="366" value="30" required></label>
+<label>Subscription plan <select name="plan" id="plans"><option value="">Custom duration</option></select></label>
+<label>Maximum devices <input name="device_limit" type="number" min="1" max="50" value="1" required></label>
+<label>Status <select name="state"><option value="active">Active</option><option value="suspended">Suspended</option></select></label>
+<label>Notes <input name="notes" maxlength="500"></label>
+<button>Create customer</button>
+</form>
+<p id="temporary" hidden></p>
+<h2>Customers</h2>
+<form id="search"><label>Search by username or name <input name="q" type="search"></label><button>Search</button></form>
+<ul id="users"></ul>
+<section id="detail" hidden>
+<h3 id="customerTitle"></h3>
+<form id="edit">
+<label>Customer name <input name="name" maxlength="100"></label>
+<label>Notes <input name="notes" maxlength="500"></label>
+<label>Expiry (UTC) <input name="expires" type="datetime-local" step="1" required></label>
+<label>Device limit <input name="device_limit" type="number" min="1" max="50" required></label>
+<label>Status <select name="state"><option value="active">Active</option><option value="suspended">Suspended</option></select></label>
+<button>Save customer</button>
+<button type="button" id="reset">Reset password</button>
+<button type="button" id="revoke">Permanently revoke account</button>
+</form>
+<h4>Devices</h4><ul id="devices"></ul>
+<h4>Customer history</h4><ul id="history"></ul>
+</section>
+<h2>Subscription plans</h2><ul id="planList"></ul>
+<form id="plan">
+<label>Name <input name="name" required maxlength="80"></label>
+<label>Days <input name="days" type="number" min="1" max="366" required></label>
+<label>Price in cents <input name="price_cents" type="number" min="0" max="100000000" required></label>
+<button>Save plan</button>
+</form>
+<h2>Network profiles</h2><div id="networks"></div>
+<h2>Recent audit events</h2><ul id="events"></ul>
+</div>
+</main>
+</body>
+</html>
