@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Compile a test-only instrumentation APK and verify the isolated test app UI."""
+"""Compile a test-only instrumentation APK, capture native screens, and verify logout."""
 from pathlib import Path
 import os,subprocess,time,zipfile,shutil
 ROOT=Path(__file__).resolve().parents[1];sdk=Path(os.environ['ANDROID_HOME']);bt=sdk/'build-tools/35.0.0';android=sdk/'platforms/android-35/android.jar';work=ROOT/'android/ui-build';work.mkdir(exist_ok=True)
-APP_ID=os.environ.get('TPP_TEST_APPLICATION_ID','za.co.topprivateplug.test')
-APK=ROOT/os.environ.get('TPP_TEST_APK','Top-private-Plug-Test-0.1.23-pilot.apk')
 def run(*args,**kwargs):return subprocess.run(list(map(str,args)),check=True,**kwargs)
-manifest=work/'AndroidManifest.xml';manifest.write_text('<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="za.co.topprivateplug.uitest"><uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35"/><application android:label="UI tests"/><instrumentation android:name="za.co.topprivateplug.UiSnapshots" android:targetPackage="'+APP_ID+'"/></manifest>')
+manifest=work/'AndroidManifest.xml';manifest.write_text('<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="za.co.topprivateplug.uitest"><uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35"/><application android:label="UI tests"/><instrumentation android:name="za.co.topprivateplug.UiSnapshots" android:targetPackage="za.co.topprivateplug"/></manifest>')
 for directory in ['classes','dex']:(work/directory).mkdir(exist_ok=True)
 run(bt/'aapt2','link','--manifest',manifest,'-I',android,'-o',work/'base.apk')
 run('javac','--release','8','-cp',str(android)+os.pathsep+str(ROOT/'android/build/classes'),'-d',work/'classes',ROOT/'android/ui-tests/UiSnapshots.java')
@@ -16,10 +14,7 @@ with zipfile.ZipFile(work/'test.apk','a') as z:
  for file in (work/'dex').glob('*.dex'):z.write(file,file.name)
 run(bt/'zipalign','-f','4',work/'test.apk',work/'aligned.apk')
 run(bt/'apksigner','sign','--ks',ROOT/'.local-signing/debug.keystore','--ks-pass','pass:android','--out',work/'signed.apk',work/'aligned.apk')
-adb=sdk/'platform-tools/adb'
-if not APK.exists():raise SystemExit('Test APK missing: '+str(APK))
-run(adb,'install','-r',APK)
-run(adb,'install','-r',work/'signed.apk')
+adb=sdk/'platform-tools/adb';run(adb,'install','-r',ROOT/'Top-private-Plug-0.1.17-pilot.apk');run(adb,'install','-r',work/'signed.apk')
 try:
  result=run(adb,'shell','am','instrument','-w','za.co.topprivateplug.uitest/za.co.topprivateplug.UiSnapshots',capture_output=True,text=True,timeout=180);print(result.stdout)
 except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
@@ -27,16 +22,11 @@ except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
  print(error.stderr or '')
  subprocess.run([str(adb),'logcat','-d','-t','250'],check=False)
  failed=ROOT/'ui-screenshots';failed.mkdir(exist_ok=True)
- subprocess.run([str(adb),'pull','/sdcard/Android/data/'+APP_ID+'/files/.',str(failed)],check=False)
+ subprocess.run([str(adb),'pull','/sdcard/Android/data/za.co.topprivateplug/files/.',str(failed)],check=False)
  raise
-if 'UI snapshots and logout checks passed' not in result.stdout:
- print('Native UI check failed; gathering emulator diagnostics', flush=True)
- print(result.stdout, flush=True)
- subprocess.run([str(adb),'logcat','-d','-t','500','-v','brief'],check=False)
- raise SystemExit('Native UI check failed')
-shots=ROOT/'ui-screenshots';shots.mkdir(exist_ok=True)
-if 'Screenshot skipped:' in result.stdout:
- print('One or more screenshots were blocked by a system window. Functional checks passed.')
-subprocess.run([str(adb),'pull','/sdcard/Android/data/'+APP_ID+'/files/.',str(shots)],check=False)
-with zipfile.ZipFile(ROOT/'Top-private-Plug-Test-0.1.23-ui-screenshots.zip','w',zipfile.ZIP_DEFLATED) as z:
+if 'UI snapshots and logout checks passed' not in result.stdout:raise SystemExit('Native UI check failed')
+shots=ROOT/'ui-screenshots';shots.mkdir(exist_ok=True);run(adb,'pull','/sdcard/Android/data/za.co.topprivateplug/files/.',shots)
+with zipfile.ZipFile(ROOT/'Top-private-Plug-0.1.17-ui-screenshots.zip','w',zipfile.ZIP_DEFLATED) as z:
  for image in sorted(shots.glob('*.png')):z.write(image,image.name)
+
+

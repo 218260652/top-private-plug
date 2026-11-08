@@ -28,6 +28,10 @@ final class Api {
     private final Vault vault;
     Api(Vault vault) { this.vault = vault; }
     JSONObject request(String path, JSONObject data, boolean authenticated) throws Exception {
+        return request(path, data, authenticated ? vault.token() : null);
+    }
+    JSONObject request(String path, JSONObject data, String bearer) throws Exception {
+        boolean authenticated = bearer != null;
         String endpoint = vault.endpoint();
         if (endpoint.isEmpty()) throw new Exception("Set your service address in Settings first.");
         URL url = new URL(endpoint + path);
@@ -36,7 +40,8 @@ final class Api {
         if(route!=null && !route.endpoint.equals(endpoint)) throw new Exception("Disconnect before changing the account service.");
         if(route!=null && route.beforeRequest!=null)route.beforeRequest.run();
         HttpsURLConnection connection = (HttpsURLConnection)(route==null?url.openConnection():url.openConnection(route.proxy));
-        boolean heartbeat = "/v1/xray/heartbeat".equals(path) || "/v1/xray/disconnect".equals(path);
+        boolean heartbeat = "/v1/xray/heartbeat".equals(path) || "/v1/xray/disconnect".equals(path)
+            || "/v2/customer/heartbeat".equals(path) || "/v2/customer/disconnect".equals(path);
         connection.setConnectTimeout(heartbeat ? 5000 : 12000);
         connection.setReadTimeout(heartbeat ? 10000 : 45000);
         connection.setInstanceFollowRedirects(false);
@@ -45,8 +50,7 @@ final class Api {
         // consumed account connection reusable between challenge and authorization.
         connection.setRequestProperty("X-TPP-Engines", "xray");
         connection.setRequestProperty("X-TPP-Features", "legacy-tls-test-v1");
-        if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + vault.token());
-        connection.setRequestProperty("X-TPP-Network", vault.network());
+        if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + bearer);
         ConnectionReport.request(path, 0, route!=null);
         boolean consumed=false;
         try {
@@ -58,10 +62,7 @@ final class Api {
             }
             int status = connection.getResponseCode();
             ConnectionReport.request(path, status, route!=null);
-            // Proxy errors may contain HTML or no body. Preserve the HTTP status
-            // so transient failures remain retryable and denials remain terminal.
-            if (status < 200 || status >= 300) throw new HttpError(status, CustomerMessage.forStatus(status), authenticated);
-            InputStream stream = connection.getInputStream();
+            InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
             if (stream == null) throw new Exception("The service did not return a response.");
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             try (InputStream input = stream) {
@@ -70,6 +71,8 @@ final class Api {
             }
             consumed=true;
             JSONObject result = new JSONObject(bytes.toString("UTF-8"));
+            if (status < 200 || status >= 300) throw new HttpError(status, path.startsWith("/v2/customer/") ?
+                result.optString("error", CustomerMessage.forStatus(status)) : CustomerMessage.forStatus(status), authenticated);
             return result;
         } catch (javax.net.ssl.SSLException error) {
             ConnectionReport.failure(path, error);
@@ -92,20 +95,13 @@ final class Api {
         return new JSONObject().put("public_key", publicKey).put("challenge_id", challenge.getString("id"))
             .put("signature", DeviceKey.sign(challenge.getString("message")));
     }
-    void requireNetworkBinding() throws Exception {
-        if(request("/health",null,false).optInt("network_binding_version",0)<1)
-            throw new HttpError(428,"Update the admin service before activating network-bound codes.",false);
-    }
     JSONObject activate(String code) throws Exception {
-        requireNetworkBinding();
-        JSONObject result = request("/v1/activate", proof("activate").put("code", code.trim()).put("carrier",vault.network()), false);
-        if(!vault.network().equals(result.getJSONObject("account").optString("carrier")))throw new HttpError(422,"Wrong activation network",false);
-        vault.activateToken(result.getString("token"),result.getJSONObject("account")); return result.getJSONObject("account");
+        JSONObject result = request("/v1/activate", proof("activate").put("code", code.trim()), false);
+        vault.token(result.getString("token")); return result.getJSONObject("account");
     }
-    JSONObject connect(String profile) throws Exception { requireNetworkBinding();return request("/v1/connect", proof("connect").put("profile_id", profile), true); }
+    JSONObject connect(String profile) throws Exception { return request("/v1/connect", proof("connect").put("profile_id", profile), true); }
     void prepareProfiles(org.json.JSONArray profiles) throws Exception { prepareProfiles(profiles,false); }
     void prepareProfiles(org.json.JSONArray profiles, boolean replace) throws Exception {
-        requireNetworkBinding();
         final String accessToken=vault.token(), origin=vault.endpoint();
         for(int i=0;i<profiles.length();i++) {
             JSONObject profile=profiles.getJSONObject(i);
@@ -125,7 +121,6 @@ final class Api {
         }
     }
     JSONObject connect(String profile, Progress progress) throws Exception {
-        requireNetworkBinding();
         String accessToken=vault.token(), origin=vault.endpoint();
         JSONObject data = proof("connect", progress).put("profile_id", profile);
         progress.stage("Authorizing account and downloading the connection profile");

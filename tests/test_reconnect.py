@@ -15,13 +15,13 @@ class Api { static class HttpError extends Exception { final int status; HttpErr
 public class RecoveryHarness {
  static final int STOP_FOREGROUND_REMOVE=1;
  final AtomicBoolean stopping=new AtomicBoolean(true);
- boolean reconnectAllowed=true,retryFailure=true,proxyFailure=true,retryPending,hadLease,leaseReleased,foreground=true,available=true;
- long connectedAt=1000;boolean underlyingNetworkReady(){return available;}
+ boolean reconnectAllowed=true,retryFailure=true,proxyFailure=true,retryPending,hadLease,foreground=true;
  int retryAttempt,starts,stops; String accessToken="access",accountOrigin="https://admin.example";
  String token="access",endpoint=accountOrigin; static String state="Connected",detail="";
  Runnable retryTask; final Main main=new Main();
  static class Main { Runnable delayed;long delay;void postDelayed(Runnable r,long ms){delayed=r;delay=ms;}void removeCallbacks(Runnable r){if(delayed==r)delayed=null;} }
  static class Vault { RecoveryHarness s;Vault(RecoveryHarness s){this.s=s;}String token(){return s.token;}String endpoint(){return s.endpoint;} }
+ String sessionMarker(Vault vault){return vault.token();}
  void stopForeground(int flags){foreground=false;}void stopSelf(){stops++;}void showNotification(String s){}
  void stopTunnel(){stops++;}void beginAttempt(){starts++;}
  static void check(boolean b,String s){if(!b)throw new AssertionError(s);}
@@ -37,24 +37,14 @@ public class RecoveryHarness {
   check(RetryPolicy.delayMillis(1,true,false)>=30000,"Proxy hammered");
   check(RetryPolicy.delayMillis(1,false,true)>=35000,"Lease overlap");
   RecoveryHarness s=new RecoveryHarness();
-  for(int i=1;i<=12;i++){s.onCleanupComplete();check(s.retryAttempt==i&&s.retryPending&&state.equals("Reconnecting"),"Missing retry "+i);Runnable next=s.main.delayed;s.main.delayed=null;next.run();check(s.starts==i,"Attempt did not start");}
-  check(s.starts==12&&s.stops==0,"Recovery stopped after a lifetime retry limit");
-  s.retryAttempt=4;s.resetRetryAfterStableHeartbeat(60999);check(s.retryAttempt==4,"Reset before 60 stable seconds");
-  s.resetRetryAfterStableHeartbeat(61000);check(s.retryAttempt==0,"Stable connection did not reset retries");
-  check(RetryPolicy.nextAttempt(Integer.MAX_VALUE)==31,"Retry counter overflow");
-  s=new RecoveryHarness();s.available=false;s.onCleanupComplete();s.main.delayed.run();
-  check(s.starts==0&&s.retryPending&&s.main.delay==5000,"Retried without a physical network");
-  s.available=true;s.main.delayed.run();check(s.starts==1&&!s.retryPending,"Did not resume when network returned");
-  s=new RecoveryHarness();s.proxyFailure=false;s.hadLease=true;s.leaseReleased=true;s.onCleanupComplete();
-  check(s.main.delay==2000,"Confirmed session release did not allow fast reconnect");
-  s=new RecoveryHarness();s.proxyFailure=false;s.hadLease=true;s.leaseReleased=false;s.onCleanupComplete();
-  check(s.main.delay>=35000,"Unconfirmed lease retried unsafely");
+  for(int i=1;i<=5;i++){s.onCleanupComplete();check(s.retryAttempt==i&&s.retryPending&&state.equals("Reconnecting"),"Missing retry "+i);Runnable next=s.main.delayed;s.main.delayed=null;next.run();check(s.starts==i,"Attempt did not start");}
+  s.onCleanupComplete();check(s.starts==5&&s.stops==1&&state.equals("Disconnected")&&!s.foreground,"Exceeded five retries");
   s=new RecoveryHarness();s.onCleanupComplete();s.requestStop();check(s.main.delayed==null&&!s.reconnectAllowed&&!s.retryPending,"Stop did not cancel scheduled reconnect");
   s=new RecoveryHarness();s.onCleanupComplete();s.token="changed";s.main.delayed.run();check(s.starts==0&&!s.reconnectAllowed,"Restarted after logout/account change");
   s=new RecoveryHarness();s.retryFailure=false;s.onCleanupComplete();check(s.main.delayed==null&&s.stops==1,"Retried terminal authorization failure");
   System.out.println("PASS");
  }
-'''+method(source,'onCleanupComplete')+'\n'+method(source,'requestStop')+'\n'+method(source,'resetRetryAfterStableHeartbeat')+'\n}\n'
+'''+method(source,'onCleanupComplete')+'\n'+method(source,'requestStop')+'\n}\n'
   with tempfile.TemporaryDirectory() as tmp:
    f=Path(tmp)/'RecoveryHarness.java';f.write_text(harness)
    result=subprocess.run(['javac','-d',tmp,str(f),str(JAVA/'RetryPolicy.java'),str(JAVA/'ProxyFailure.java'),str(JAVA/'ConnectionReport.java')],capture_output=True,text=True)
