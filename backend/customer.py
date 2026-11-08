@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
 from . import xray
 from .store import Fault, digest
 
-NETWORKS = ('MTN', 'Telkom', 'Cell C')
+NETWORKS = ('MTN', 'Telkom')
 ACCESS_SECONDS = 300
 SESSION_SECONDS = 14 * 86400
 LEASE_SECONDS = 30
@@ -69,6 +69,15 @@ def view(row, now):
     result.pop('password', None)
     result['status'] = state(row, now)
     return result
+
+
+def customer_view(row, now):
+    return {**{key: row[key] for key in ('id','username','starts','expires','device_limit','must_change')},
+            'status': state(row, now)}
+
+
+def is_vless(config):
+    return any(item.get('protocol') == 'vless' for item in config.get('outbounds', []))
 
 
 def migrate(store):
@@ -150,7 +159,7 @@ class Customers:
             result = self.session(db, device_id, now)
             db.execute('UPDATE customer_users SET last_login=? WHERE id=?', (now, row['id']))
             event(db, now, 'customer', row['id'], 'login')
-            return {**result, 'account': view(current, now)}
+            return {**result, 'account': customer_view(current, now)}
 
     def refresh(self, data):
         raw = password(data.get('refresh_token'), 20)
@@ -191,9 +200,16 @@ class Customers:
         return row
 
     def network_rows(self, db):
-        return [dict(row) for row in db.execute("""SELECT n.carrier,n.profile,CASE WHEN n.tested=p.version THEN 1 ELSE 0 END AS tested,p.name,p.version,p.enabled,
-            x.insecure FROM customer_networks n JOIN profiles p ON p.id=n.profile
-            JOIN xray_profiles x ON x.profile=p.id ORDER BY n.carrier""")]
+        profiles = []
+        for row in db.execute("""SELECT n.carrier,n.profile,CASE WHEN n.tested=p.version THEN 1 ELSE 0 END AS tested,
+            p.name,p.version,p.enabled,x.insecure,x.config
+            FROM customer_networks n JOIN profiles p ON p.id=n.profile
+            JOIN xray_profiles x ON x.profile=p.id WHERE n.carrier IN (?,?) ORDER BY n.carrier""", NETWORKS):
+            item = dict(row)
+            if not is_vless(json.loads(item.pop('config'))):
+                item['enabled'] = item['tested'] = 0
+            profiles.append(item)
+        return profiles
 
     def customer(self, op, token, data):
         now = self.store.now()
@@ -208,7 +224,7 @@ class Customers:
                 return {'ok': True}
             eligible(row, now)
             if op == 'profile':
-                return view({key: row[key] for key in row.keys() if key not in ('public_key','device','session')}, now)
+                return customer_view(row, now)
             if op == 'password':
                 self.store.proof(db, data, row['public_key'], 'customer-password')
                 replacement = hash_password(password(data.get('password')))
@@ -325,10 +341,10 @@ class Customers:
                 if carrier not in NETWORKS or type(tested) is not bool or not isinstance(profile,str):
                     raise Fault('Invalid network assignment')
                 if profile:
-                    row = db.execute("""SELECT p.version FROM profiles p JOIN xray_profiles x ON x.profile=p.id
+                    row = db.execute("""SELECT p.version,x.config FROM profiles p JOIN xray_profiles x ON x.profile=p.id
                         WHERE p.id=? AND p.carrier IN (?, 'Any') AND x.insecure=0""",(profile,carrier)).fetchone()
-                    if not row:
-                        raise Fault('Choose a certificate-verified import for this network')
+                    if not row or not is_vless(json.loads(row['config'])):
+                        raise Fault('Choose a certificate-verified VLESS import for this network')
                     db.execute("""INSERT INTO customer_networks VALUES(?,?,?) ON CONFLICT(carrier)
                          DO UPDATE SET profile=excluded.profile,tested=excluded.tested""",(carrier,profile,row['version'] if tested else 0))
                 else:
@@ -354,11 +370,11 @@ class Customers:
                 initial_state = data.get('state','active')
                 if initial_state not in ('active','suspended'):
                     raise Fault('Invalid account status')
-                db.execute('INSERT INTO customer_users VALUES(?,?,?,?,?,?,?,?,?,?,1,NULL)',
+                db.execute('INSERT INTO customer_users VALUES(?,?,?,?,?,?,?,?,?,?,0,NULL)',
                            (customer,name,hash_password(plain),self.label(data.get('name',''),100),
                             self.label(data.get('notes',''),500),initial_state,now,now,now+days*86400,limit))
                 event(db,now,actor,customer,'customer_created')
-                return {'id':customer,'temporary_password':plain}
+                return {'id':customer,'initial_password':plain}
             row = db.execute('SELECT * FROM customer_users WHERE id=?',(customer,)).fetchone()
             if not row:
                 raise Fault('Customer not found',404)

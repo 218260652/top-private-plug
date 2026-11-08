@@ -3,7 +3,7 @@
 const $ = id => document.getElementById(id);
 const message = text => { $('message').textContent = text; };
 const fields = form => Object.fromEntries(new FormData(form));
-const carriers = ['MTN', 'Telkom', 'Cell C'];
+const carriers = ['MTN', 'Telkom'];
 let selected = '';
 let selectedPlan = '';
 
@@ -62,9 +62,9 @@ function clearTemporary() {
   $('temporary').replaceChildren();
 }
 
-function temporary(value) {
+function showPassword(value, label) {
   clearTemporary();
-  $('temporary').textContent = 'One-time display. Share securely with the customer. Temporary password: ' + value + ' ';
+  $('temporary').textContent = 'Shown once. Share securely with the customer. ' + label + ': ' + value + ' ';
   const close = document.createElement('button');
   close.type = 'button';
   close.textContent = 'Hide password';
@@ -179,7 +179,7 @@ $('create').addEventListener('submit', safe(async () => {
   $('create').reset();
   await list();
   await overview();
-  temporary(result.temporary_password);
+  showPassword(result.initial_password, 'Password');
 }));
 $('edit').addEventListener('submit', safe(async () => {
   const data = fields($('edit'));
@@ -222,7 +222,7 @@ $('revoke').addEventListener('click', safe(async () => {
 }));
 $('reset').addEventListener('click', safe(async () => {
   if (!confirm('Reset the password and revoke existing sessions?')) return;
-  temporary((await customer('reset', { id: selected })).temporary_password);
+  showPassword((await customer('reset', { id: selected })).temporary_password, 'Temporary reset password');
 }));
 $('plan').addEventListener('submit', safe(async () => {
   const data = fields($('plan'));

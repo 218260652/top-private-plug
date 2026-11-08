@@ -79,10 +79,10 @@ jobs:
       - name: Build and verify signed test APK
         run: |
           python tools/build_android.py --customer-test
-          apk=Top-Private-Plug-Test-0.2.0-test.1.apk
+          apk=Top-Private-Plug-0.2.1.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$apk" > APK-METADATA.txt
-          grep -F "package: name='za.co.topprivateplug.test' versionCode='25' versionName='0.2.0-test.1'" APK-METADATA.txt
-          grep -F "application-label:'Top Private Plug Test'" APK-METADATA.txt
+          grep -F "package: name='za.co.topprivateplug.test' versionCode='26' versionName='0.2.1'" APK-METADATA.txt
+          grep -F "application-label:'Top Private Plug'" APK-METADATA.txt
           git rev-parse HEAD >> APK-METADATA.txt
           sha256sum "$apk" | tee SHA256SUMS
       - id: artifact
@@ -91,7 +91,7 @@ jobs:
         with:
           name: Top-Private-Plug-Test-APK
           path: |
-            Top-Private-Plug-Test-0.2.0-test.1.apk
+            Top-Private-Plug-0.2.1.apk
             APK-METADATA.txt
             SHA256SUMS
           if-no-files-found: error
@@ -103,5 +103,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$(gh repo view --json visibility --jq .visibility)" = PRIVATE
-          tag="customer-test-0.2.0-${GITHUB_SHA:0:12}-${GITHUB_RUN_ATTEMPT}"
-          gh release create "$tag" --target "$GITHUB_SHA" --prerelease --latest=false             --title "Top Private Plug Test 0.2.0-test.1"             --notes "Private staging APK. Requires the isolated test backend. See APK-METADATA.txt and SHA256SUMS."             Top-Private-Plug-Test-0.2.0-test.1.apk APK-METADATA.txt SHA256SUMS
+          tag="customer-update-0.2.1-${GITHUB_SHA:0:12}-${GITHUB_RUN_ATTEMPT}"
+          gh release create "$tag" --target "$GITHUB_SHA" --prerelease --latest=false             --title "Top Private Plug 0.2.1"             --notes "Private staging APK. Requires the isolated test backend. See APK-METADATA.txt and SHA256SUMS."             Top-Private-Plug-0.2.1.apk APK-METADATA.txt SHA256SUMS

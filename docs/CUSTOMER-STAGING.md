@@ -12,11 +12,11 @@ The additive migration is `backend/migrations/001_customer.sql`. Rehearse with i
 
 ## Install and test
 
-Download and extract the signed test APK from the matching **Customer staging checks and test APK** run. Verify the APK using its supplied SHA-256 and metadata. The expected application ID is `za.co.topprivateplug.test`, label `Top Private Plug Test`, version `0.2.0-test.1`, and code `25`. Install alongside production with Android’s package installer or `adb install -r`. This signing identity differs from previous pilots, so an older test package signed with a different key may need to be uninstalled. Android allows only one active VPN at a time.
+Download and extract the signed test APK from the matching **Customer staging checks and test APK** run. Verify the APK using its supplied SHA-256 and metadata. The expected application ID is `za.co.topprivateplug.test`, label `Top Private Plug`, version `0.2.1`, and code `26`. Install alongside production with Android’s package installer or `adb install -r`. This signing identity differs from previous pilots, so an older test package signed with a different key may need to be uninstalled. Android allows only one active VPN at a time.
 
 1. In the staging admin, create a customer with a temporary password and a short subscription.
 2. Import a TLS-verified VLESS profile using staging credentials via the legacy profile import page. Assign it to a carrier on the customer dashboard.
-3. In the test app, log in and change the temporary password. Close and reopen the app and verify session restore. Confirm the unconfigured networks are disabled.
+3. In the test app, log in with the password supplied by the administrator. Close and reopen the app and verify session restore. Confirm the unconfigured networks are disabled.
 4. Select a configured network, grant Android VPN permission, connect, and verify browser egress through the VPN. Disconnect and verify normal routing returns.
 5. Repeat across Wi-Fi and approved mobile-data connections on each physical carrier. Set the carrier verification checkbox only after testing the current profile version.
 6. Suspend the customer during a connection and verify the official client stops. Repeat for natural expiry and device revocation. Check that a new authorization is refused.

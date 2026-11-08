@@ -77,7 +77,7 @@ public final class CustomerActivity extends Activity {
         scroll.addView(root);
         setContentView(scroll);
         label("TOP PRIVATE PLUG", 27);
-        label("Staging test", 14);
+
         message = label("", 15);
         message.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         progress = new ProgressBar(this);
@@ -158,10 +158,11 @@ public final class CustomerActivity extends Activity {
             for (int i = 0; i < networks.length(); i++) {
                 JSONObject profile = networks.optJSONObject(i);
                 String name = profile.optString("carrier");
+                if (!"MTN".equals(name) && !"Telkom".equals(name)) continue;
                 boolean enabled = available(profile);
                 RadioButton choice = new RadioButton(this);
                 choice.setId(View.generateViewId());
-                choice.setText(name + (enabled ? (profile.optInt("tested") != 0 ? " · verified" : " · test profile") : " · unavailable"));
+                choice.setText(name + (enabled ? (profile.optInt("tested") != 0 ? " · verified" : " · carrier verification pending") : " · unavailable"));
                 choices.addView(choice);
                 if (carrier.equals(name)) choices.check(choice.getId());
                 choice.setOnClickListener(view -> { carrier = name; updateTunnel(); });
