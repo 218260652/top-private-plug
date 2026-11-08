@@ -41,11 +41,11 @@ def main():
     run(tools / 'aapt2', 'compile', '--dir', source / 'res', '-o', build / 'res.zip')
     ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
     manifest = ET.parse(source / 'AndroidManifest.xml')
-    manifest.getroot().set('package', 'za.co.topprivateplug')
+    manifest.getroot().set('package', 'za.co.topprivateplug.test')
     manifest.write(build / 'AndroidManifest.xml', encoding='utf-8', xml_declaration=True)
     run(tools / 'aapt2', 'link', '-o', build / 'base.apk', '--manifest', build / 'AndroidManifest.xml',
         '-I', android, '--java', build / 'gen', '--min-sdk-version', '26', '--target-sdk-version', '35',
-        '-A', source / 'assets', '--version-code', '23', '--version-name', '0.1.22-pilot', '--debug-mode', build / 'res.zip')
+        '-A', source / 'assets', '--version-code', '24', '--version-name', '0.1.23-test', '--debug-mode', build / 'res.zip')
     aar = ROOT / 'android' / 'app' / 'libs' / 'libv2ray.aar'
     if not aar.exists():
         raise SystemExit('Build the pinned libv2ray.aar first; see tools/build_xray.sh')
@@ -76,7 +76,7 @@ def main():
     if not keystore.exists():
         run('keytool', '-genkeypair', '-keystore', keystore, '-storepass', 'android', '-keypass', 'android', '-alias',
             'androiddebugkey', '-dname', 'CN=Android Debug,O=Android,C=ZA', '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000')
-    output = ROOT / 'Top-private-Plug-0.1.22-pilot.apk'
+    output = ROOT / 'Top-private-Plug-Test-0.1.23-pilot.apk'
     run(tools / 'apksigner', 'sign', '--ks', keystore, '--ks-key-alias', 'androiddebugkey', '--ks-pass', 'pass:android',
         '--key-pass', 'pass:android', '--out', output, build / 'aligned.apk')
     run(tools / 'apksigner', 'verify', '--verbose', output)
