@@ -33,7 +33,7 @@ class Limiter:
             self.buckets.popitem(last=False)
 
 
-def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True, gateway_enabled=False, profile_notifier=None):
+def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True, gateway_enabled=False, profile_notifier=None, customers_enabled=False):
     limiter = Limiter()
     public_origin = public_origin.rstrip('/')
 
@@ -45,7 +45,7 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
                     if request.headers.get('Origin') != public_origin or request.headers.get('X-TPP-Request') != '1':
                         raise Fault('Request origin rejected', 403)
                 if request.path != '/admin/api/login':
-                    store.admin_auth(request.cookies.get('tpp_admin', ''))
+                    await asyncio.to_thread(store.admin_auth, request.cookies.get('tpp_admin', ''))
             if request.path.startswith('/v1/'):
                 # Many trial devices can share a NAT address. Bound each bearer
                 # separately while preserving an aggregate rate limit per IP.
@@ -117,7 +117,8 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     async def admin_state(request):
         accounts = store.accounts()
         return web.json_response({'accounts': accounts, 'profiles': [p for p in store.profiles() if p['engine'] == 'xray'], 'audit': store.audit_list(),
-                                  'connection_method': 'imported-profile', 'gateway_enabled': False, 'server_time': store.now()})
+                                  'connection_method': 'imported-profile', 'gateway_enabled': False, 'server_time': store.now(),
+                                  **({'customer_admin': '/admin/customers/'} if customers_enabled else {})})
 
     async def issue(request):
         data = await body(request)
@@ -167,6 +168,8 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     async def challenge(request):
         limiter.check(('challenge', peer(request)), 300)
         data = await body(request)
+        if data.get('purpose') not in ('activate', 'connect'):
+            raise Fault('Invalid challenge purpose')
         return web.json_response(store.challenge(data.get('public_key', ''), data.get('purpose', '')))
 
     async def activate(request):
@@ -216,6 +219,10 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
         return web.json_response({'ok': True})
 
     async def index(request):
+        filename = 'customers.html' if customers_enabled else 'index.html'
+        return web.FileResponse(Path(__file__).parent / 'static' / filename)
+
+    async def legacy_admin(request):
         return web.FileResponse(Path(__file__).parent / 'static' / 'index.html')
 
     async def root(request):
@@ -229,6 +236,8 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     app.router.add_get('/', root)
     app.router.add_get('/admin', index)
     app.router.add_get('/admin/', index)
+    if customers_enabled:
+        app.router.add_get('/admin/legacy/', legacy_admin)
     app.router.add_static('/assets/', Path(__file__).parent / 'static')
     app.router.add_post('/admin/api/login', login)
     app.router.add_post('/admin/api/logout', logout)
@@ -252,6 +261,9 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
     app.router.add_get('/v1/usage', usage)
     app.router.add_post('/v1/connect', connect)
     app.router.add_post('/v1/disconnect', disconnect)
+    if customers_enabled:
+        from .customer import install
+        install(app, store, peer, body, token)
     return app
 
 
@@ -259,6 +271,13 @@ async def main():
     os.umask(0o077)
     database = os.environ.get('DATABASE_URL') or os.environ.get('TPP_DB', 'data/tpp.sqlite3')
     is_postgres = database.startswith(('postgresql://', 'postgres://'))
+    customers_enabled = os.environ.get('TPP_CUSTOMER_STAGING') == '1'
+    origin = os.environ.get('TPP_PUBLIC_ORIGIN') or os.environ.get('RENDER_EXTERNAL_URL', '')
+    if customers_enabled:
+        from urllib.parse import urlsplit
+        if (origin.rstrip('/') != 'https://top-private-plug-test-api.onrender.com' or not is_postgres
+                or urlsplit(database).path != '/top_private_plug_test_db'):
+            raise SystemExit('Customer staging requires the dedicated HTTPS origin and PostgreSQL database')
     if not is_postgres:
         Path(database).parent.mkdir(parents=True, exist_ok=True)
     process_lock = open('/tmp/top-private-plug.lock' if is_postgres else database + '.lock', 'a')
@@ -273,15 +292,22 @@ async def main():
     if bootstrap_password and not store.has_admin():
         store.bootstrap('admin', bootstrap_password)
     local_dev = os.environ.get('TPP_LOCAL_DEV') == '1'
-    origin = os.environ.get('TPP_PUBLIC_ORIGIN') or os.environ.get('RENDER_EXTERNAL_URL', '')
     bind = os.environ.get('TPP_HTTP_BIND', '0.0.0.0' if os.environ.get('RENDER_EXTERNAL_URL') else '127.0.0.1')
     if local_dev and bind not in ['127.0.0.1', '::1']:
         raise SystemExit('Local HTTP development mode must bind to loopback')
     if not local_dev and not origin.startswith('https://'):
         raise SystemExit('Set TPP_PUBLIC_ORIGIN to your public HTTPS origin')
+    if customers_enabled:
+        with store.db() as db:
+            identity = db.execute('SELECT current_database()').fetchone()[0]
+        if identity != 'top_private_plug_test_db':
+            raise SystemExit('Customer staging requires the dedicated test database')
+        from .customer import migrate
+        migrate(store)
     app = create_app(store, origin or 'http://127.0.0.1:8080',
                      secure_cookies=os.environ.get('TPP_LOCAL_DEV') != '1',
-                     profile_notifier=ProfileMailer.from_env(store))
+                     profile_notifier=None if customers_enabled else ProfileMailer.from_env(store),
+                     customers_enabled=customers_enabled)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     await web.TCPSite(runner, bind, int(os.environ.get('TPP_HTTP_PORT') or os.environ.get('PORT', '8080'))).start()

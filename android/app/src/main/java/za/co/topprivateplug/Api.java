@@ -28,6 +28,10 @@ final class Api {
     private final Vault vault;
     Api(Vault vault) { this.vault = vault; }
     JSONObject request(String path, JSONObject data, boolean authenticated) throws Exception {
+        return request(path, data, authenticated ? vault.token() : null);
+    }
+    JSONObject request(String path, JSONObject data, String bearer) throws Exception {
+        boolean authenticated = bearer != null;
         String endpoint = vault.endpoint();
         if (endpoint.isEmpty()) throw new Exception("Set your service address in Settings first.");
         URL url = new URL(endpoint + path);
@@ -36,7 +40,8 @@ final class Api {
         if(route!=null && !route.endpoint.equals(endpoint)) throw new Exception("Disconnect before changing the account service.");
         if(route!=null && route.beforeRequest!=null)route.beforeRequest.run();
         HttpsURLConnection connection = (HttpsURLConnection)(route==null?url.openConnection():url.openConnection(route.proxy));
-        boolean heartbeat = "/v1/xray/heartbeat".equals(path) || "/v1/xray/disconnect".equals(path);
+        boolean heartbeat = "/v1/xray/heartbeat".equals(path) || "/v1/xray/disconnect".equals(path)
+            || "/v2/customer/heartbeat".equals(path) || "/v2/customer/disconnect".equals(path);
         connection.setConnectTimeout(heartbeat ? 5000 : 12000);
         connection.setReadTimeout(heartbeat ? 10000 : 45000);
         connection.setInstanceFollowRedirects(false);
@@ -45,7 +50,7 @@ final class Api {
         // consumed account connection reusable between challenge and authorization.
         connection.setRequestProperty("X-TPP-Engines", "xray");
         connection.setRequestProperty("X-TPP-Features", "legacy-tls-test-v1");
-        if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + vault.token());
+        if (authenticated) connection.setRequestProperty("Authorization", "Bearer " + bearer);
         ConnectionReport.request(path, 0, route!=null);
         boolean consumed=false;
         try {
@@ -66,7 +71,8 @@ final class Api {
             }
             consumed=true;
             JSONObject result = new JSONObject(bytes.toString("UTF-8"));
-            if (status < 200 || status >= 300) throw new HttpError(status, CustomerMessage.forStatus(status), authenticated);
+            if (status < 200 || status >= 300) throw new HttpError(status, path.startsWith("/v2/customer/") ?
+                result.optString("error", CustomerMessage.forStatus(status)) : CustomerMessage.forStatus(status), authenticated);
             return result;
         } catch (javax.net.ssl.SSLException error) {
             ConnectionReport.failure(path, error);

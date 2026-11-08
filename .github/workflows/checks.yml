@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   verify-and-build:
-    if: ${{ !startsWith(github.head_ref, 'fix/backend-network-binding-') }}
+    if: ${{ !startsWith(github.head_ref, 'fix/backend-network-binding-') && github.head_ref != 'develop/customer-auth-staging' && github.ref_name != 'develop/customer-auth-staging' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:

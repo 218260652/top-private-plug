@@ -1,0 +1,58 @@
+.customer-admin { background: #0a1221; }
+.customer-admin aside { background: #0d1829; }
+.customer-admin main { max-width: 1420px; }
+.customer-admin nav a { padding: 10px 12px; border-radius: 8px; color: #d2deef; text-decoration: none; font-weight: 600; }
+.customer-admin nav a:hover, .customer-admin nav a:focus-visible { color: var(--cyan); background: #172c43; }
+.customer-admin .masthead p { margin: 4px 0 0; }
+.customer-admin .card { background: #101d30; border-color: #243750; border-radius: 16px; }
+.customer-admin .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.customer-admin .toolbar h2 { margin: 0; }
+.customer-admin .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px,1fr)); gap: 10px; padding: 0; margin: 0 0 24px; list-style: none; }
+.customer-admin .metrics li { margin: 0; padding: 14px; background: #132239; border: 1px solid #263b56; border-radius: 10px; text-transform: capitalize; }
+.customer-admin .account-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; }
+.customer-admin .rows { list-style: none; padding: 0; }
+.customer-admin .rows li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #263b56; overflow-wrap: anywhere; }
+.customer-admin .lifecycle { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.customer-admin .lifecycle form { display: flex; align-items: end; gap: 8px; }
+.customer-admin .lifecycle label { max-width: 120px; margin: 0; }
+.customer-admin .lifecycle button { min-height: 45px; }
+.customer-admin summary { color: #b4c8e1; cursor: pointer; margin: 18px 0; }
+.customer-admin #message:not(:empty) { padding: 12px 16px; border: 1px solid #375674; border-radius: 8px; color: #e9f5ff; }
+.customer-admin #temporary { overflow-wrap: anywhere; }
+.customer-admin #temporary button { margin-left: 8px; }
+.customer-admin section, .customer-admin form { scroll-margin-top: 20px; }
+@media (max-width: 950px) { .customer-admin .account-layout { grid-template-columns: 1fr; gap: 0; } .customer-admin #create { grid-row: 1; } }
+@media (max-width: 650px) { .customer-admin nav a { white-space: nowrap; font-size: 13px; } .customer-admin .masthead .tag { display: none; } }
+
+/* Dashboard review: clear hierarchy and usable narrow-screen forms. */
+.customer-admin .skip-link { position: fixed; top: -100px; left: 16px; z-index: 10; padding: 12px; background: var(--cyan); color: #031425; }
+.customer-admin .skip-link:focus { top: 12px; }
+.customer-admin .section-copy { margin: -6px 0 20px; font-size: 14px; }
+.customer-admin .metrics li { text-transform: none; min-width: 0; }
+.customer-admin .metrics li > span { display: block; color: var(--muted); font-size: 12px; text-transform: capitalize; }
+.customer-admin .metrics strong { display: block; font-size: 26px; line-height: 1.3; margin-top: 8px; overflow-wrap: anywhere; }
+.customer-admin .metrics small { display: block; margin-top: 8px; }
+.customer-admin .rows li > span { min-width: 0; }
+.customer-admin .rows button { flex-shrink: 0; }
+.customer-admin .network-card { padding: 20px; background: #0c1829; border: 1px solid #263b56; border-radius: 12px; }
+.customer-admin #networks { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.customer-admin input[type=checkbox] { width: 18px; height: 18px; flex: 0 0 18px; margin: 0; accent-color: var(--cyan); }
+.customer-admin .check { display: flex; gap: 10px; align-items: center; }
+.customer-admin nav a[aria-current] { color: var(--cyan); background: #172c43; }
+.customer-admin #planList { padding: 0; list-style: none; }
+.customer-admin #planList li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; overflow-wrap: anywhere; }
+.customer-admin #plan { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; align-items: end; }
+.customer-admin #plan label { margin: 0; }
+.customer-admin .login .primary { width: 100%; }
+.customer-admin #detail:focus { outline: 2px solid #375674; outline-offset: 3px; }
+.customer-admin #edit button { margin: 4px 4px 4px 0; }
+@media(max-width:650px) {
+  .customer-admin h1 { font-size: 27px; }
+  .customer-admin .metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .customer-admin #networks, .customer-admin #plan { grid-template-columns: 1fr; }
+  .customer-admin .network-card { padding: 16px; }
+  .customer-admin .rows li { align-items: flex-start; }
+  .customer-admin .lifecycle form { flex-wrap: wrap; }
+  .customer-admin .login { margin: 24px auto; }
+  .customer-admin input, .customer-admin select { font-size: 16px; }
+}

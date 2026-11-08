@@ -21,6 +21,7 @@ public class RecoveryHarness {
  Runnable retryTask; final Main main=new Main();
  static class Main { Runnable delayed;long delay;void postDelayed(Runnable r,long ms){delayed=r;delay=ms;}void removeCallbacks(Runnable r){if(delayed==r)delayed=null;} }
  static class Vault { RecoveryHarness s;Vault(RecoveryHarness s){this.s=s;}String token(){return s.token;}String endpoint(){return s.endpoint;} }
+ String sessionMarker(Vault vault){return vault.token();}
  void stopForeground(int flags){foreground=false;}void stopSelf(){stops++;}void showNotification(String s){}
  void stopTunnel(){stops++;}void beginAttempt(){starts++;}
  static void check(boolean b,String s){if(!b)throw new AssertionError(s);}

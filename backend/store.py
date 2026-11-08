@@ -367,7 +367,8 @@ class Store:
 
     def challenge(self, key, purpose):
         self.validate_key(key)
-        if purpose not in ['activate', 'connect']:
+        if purpose not in ['activate', 'connect', 'customer-login', 'customer-refresh',
+                           'customer-password', 'customer-device', 'customer-connect']:
             raise Fault('Invalid challenge purpose')
         challenge_id = secrets.token_urlsafe(24)
         message = 'TPP/1:' + purpose + ':' + digest(key) + ':' + secrets.token_urlsafe(32)

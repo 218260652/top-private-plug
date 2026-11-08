@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from aiohttp import web
 
@@ -47,6 +48,12 @@ def main():
         print('Waiting for owner to configure database credentials privately in hosting settings', flush=True)
         web.run_app(create_setup_app(), host='0.0.0.0', port=int(os.environ.get('PORT', '8080')), access_log=None)
         return
+    if os.environ.get('TPP_CUSTOMER_STAGING') == '1':
+        origin = os.environ.get('TPP_PUBLIC_ORIGIN') or os.environ.get('RENDER_EXTERNAL_URL', '')
+        if origin.rstrip('/') != 'https://top-private-plug-test-api.onrender.com' or any(
+            urlsplit(url).path != '/top_private_plug_test_db' for url in (dsn, direct)
+        ):
+            raise SystemExit('Refusing staging startup with a non-staging origin or database')
     # Test mutations in a unique isolated schema before applying new schema to public.
     subprocess.run([sys.executable, 'tools/verify_postgres.py', '--from-env'], check=True)
     migration = Store(direct)
