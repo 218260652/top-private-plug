@@ -275,3 +275,8 @@ The owner tested a disposable VLESS client with a 0.1 GB traffic limit. The clie
 
 
 Owner clarification: after the test, the displayed traffic counter remained at 0.1 GB. This confirms the counter did not visibly reset between the initial disconnect and the later successful use. The precise client enable/disable state at the moment of the later connection has not been confirmed, so the root cause remains open. Do not label this a proven quota bypass until enabled state and fresh-connection behavior are verified. The safe release gate remains unchanged: no direct-connect quota reliance until hard blocking is demonstrated.
+
+
+### Owner correction to quota-test interpretation (2026-11-08)
+
+The owner clarified the observed result: after changing the disposable client's traffic limit, the client could initiate/connect but could not use the connection again. This is evidence that the changed limit blocked usable traffic. The earlier wording that the client continued working was a misunderstanding and is superseded. Record quota enforcement as a positive preliminary result for this test, not as fully certified behavior: automated expiry, exact cutoff accuracy, existing-session termination, and repeatability still require controlled verification. Do not ask the owner for further manual checks during this development pass; prepare the next test build and provide a concise test checklist when ready.
