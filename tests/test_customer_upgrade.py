@@ -158,7 +158,7 @@ class CustomerStoreCases:
         with self.store.db() as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM customer_leases').fetchone()[0], 0)
         self.service.admin('lifecycle', 'owner', {'action':'pause'}, self.user)
-        self.assert_fault(403, lambda: self.call('bootstrap', session))
+        self.assert_fault(401, lambda: self.call('bootstrap', session))
 
     def test_cell_c_connection_requires_server_configured_code(self):
         profile = save(self.store, {'name':'Cell C fixture','carrier':'Cell C','config':vless()})
