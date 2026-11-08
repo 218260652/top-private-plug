@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS customer_users (
  name TEXT NOT NULL, notes TEXT NOT NULL, state TEXT NOT NULL,
  created BIGINT NOT NULL, starts BIGINT NOT NULL, expires BIGINT NOT NULL,
  device_limit INTEGER NOT NULL CHECK(device_limit BETWEEN 1 AND 50),
- must_change INTEGER NOT NULL, last_login BIGINT
+ must_change INTEGER NOT NULL, last_login BIGINT,
+ account_type TEXT NOT NULL DEFAULT 'paid' CHECK(account_type IN ('paid','trial'))
 );
 CREATE TABLE IF NOT EXISTS customer_devices (
  id TEXT PRIMARY KEY, customer TEXT NOT NULL REFERENCES customer_users(id),

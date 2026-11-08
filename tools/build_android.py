@@ -44,8 +44,8 @@ def main():
     manifest = ET.parse(source / 'AndroidManifest.xml')
     namespace = 'za.co.topprivateplug'
     app_id = namespace + ('.test' if args.customer_test else '')
-    version_code = '30' if args.customer_test else '18'
-    version_name = '0.2.5' if args.customer_test else '0.1.17-pilot'
+    version_code = '31' if args.customer_test else '18'
+    version_name = '0.2.6' if args.customer_test else '0.1.17-pilot'
     root = manifest.getroot()
     root.set('package', app_id)
     if args.customer_test:
@@ -92,7 +92,7 @@ def main():
     if not keystore.exists():
         run('keytool', '-genkeypair', '-keystore', keystore, '-storepass', 'android', '-keypass', 'android', '-alias',
             'androiddebugkey', '-dname', 'CN=Android Debug,O=Android,C=ZA', '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000')
-    output = ROOT / ('Top-Private-Plug-0.2.5.apk' if args.customer_test else 'Top-private-Plug-0.1.17-pilot.apk')
+    output = ROOT / ('Top-Private-Plug-0.2.6.apk' if args.customer_test else 'Top-private-Plug-0.1.17-pilot.apk')
     run(tools / 'apksigner', 'sign', '--ks', keystore, '--ks-key-alias', 'androiddebugkey', '--ks-pass', 'pass:android',
         '--key-pass', 'pass:android', '--out', output, build / 'aligned.apk')
     run(tools / 'apksigner', 'verify', '--verbose', output)

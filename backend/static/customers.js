@@ -161,7 +161,7 @@ async function list() {
   $('searchCount').textContent = data.users.length + ' accounts shown';
   if (!data.users.length) row($('users'), fields($('search')).q ? 'No matching accounts. Try another username or name.' : 'No customer accounts yet. Create your first account to get started.');
   for (const user of data.users) {
-    row($('users'), user.username, () => detail(user.id), 'Manage');
+    row($('users'), user.username + (user.account_type === 'trial' ? ' · Free trial' : ' · Paid'), () => detail(user.id), 'Manage');
     const item = $('users').lastElementChild;
     const name = item.firstElementChild;
     const status = document.createElement('span');
@@ -190,7 +190,8 @@ async function detail(id) {
   $('detail').scrollIntoView({ block: 'start' });
   $('detail').focus({ preventScroll: true });
   const edit = $('edit').elements;
-  for (const key of ['name', 'notes', 'device_limit']) edit[key].value = user[key];
+  for (const key of ['name', 'notes']) edit[key].value = user[key];
+  $('accountDevicePolicy').textContent = user.account_type === 'trial' ? 'Free trial · up to 50 devices' : 'Paid · 1 device';
   edit.expires.value = new Date(user.expires * 1000).toISOString().slice(0, 19);
   edit.state.value = user.state;
   $('resume').hidden = !['paused', 'suspended'].includes(user.state);
@@ -225,7 +226,6 @@ $('search').addEventListener('submit', safe(list));
 $('create').addEventListener('submit', safe(async () => {
   const data = fields($('create'));
   data.days = Number(data.days);
-  data.device_limit = 1;
   const result = await customer('create', data);
   $('create').reset();
   if (route() === 'create-account') showPassword(result.initial_password, 'Password');
@@ -235,7 +235,6 @@ $('create').addEventListener('submit', safe(async () => {
 $('edit').addEventListener('submit', safe(async () => {
   const data = fields($('edit'));
   data.id = selected;
-  data.device_limit = Number(data.device_limit);
   data.expires = Date.parse(data.expires + 'Z') / 1000;
   await customer('update', data);
   await detail(selected);
