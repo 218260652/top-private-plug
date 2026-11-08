@@ -100,3 +100,24 @@ Use a capability-gated migration:
 ## Safety boundary
 
 This branch is a draft only. Do not merge, deploy, publish, change production configuration, or modify customer accounts without explicit owner approval.
+
+
+## Supplied MTN/Telkom profile review (2026-11-08)
+
+The owner supplied one VLESS JSON profile described as being used for MTN and Telkom. It contains:
+- an external hostname, `smraiyyan.com`, on TCP port `8446`;
+- VLESS over TLS with WebSocket transport settings;
+- a UUID credential;
+- a chained HTTP proxy outbound and a proxy identity header;
+- TLS `allowInsecure: true`.
+
+This is evidence of an imported third-party endpoint, not evidence that Top Private Plug owns or administers the VLESS server. The supplied message contains only one JSON profile, so separate MTN and Telkom endpoint/credential assignments have not yet been verified.
+
+Security and implementation consequences:
+- Do not assume the UUID is unique to a Top Private Plug customer. Its per-customer scope and provider-side revocation semantics are unknown.
+- Do not put the supplied UUID, proxy identity header, or other credential material in source control, CI logs, issue text, or screenshots. Treat the pasted credential as exposed; if it is active and grants access, ask the provider to rotate it and provision a replacement securely.
+- `allowInsecure: true` disables normal TLS certificate validation and permits interception by an active network attacker. Before production use, verify the provider's certificate chain and hostname, then set certificate verification to strict. Do not silently change this in the app until compatibility has been tested against the actual endpoint.
+- The profile's chained HTTP proxy and headers may be required for the carrier-specific route. Preserve them during refactoring until each carrier has been physically tested; do not simplify the outbound chain based only on emulator results.
+- The endpoint's management API, per-user credential provisioning, server-side expiry, revocation, quota accounting, and concurrency controls remain unknown.
+
+Decision: keep the existing lease/heartbeat enforcement for this imported profile until the provider confirms and demonstrates per-customer credential provisioning and server-side revocation/expiry/quota enforcement. The direct no-admin-roundtrip path can be enabled only for a separately verified managed endpoint capability. No runtime code change is authorized by this profile review.
