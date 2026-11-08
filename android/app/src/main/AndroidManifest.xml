@@ -6,11 +6,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
-    <application android:label="Top private Plug" android:icon="@drawable/ic_launcher" android:theme="@style/AppTheme" android:allowBackup="false" android:usesCleartextTraffic="false" android:supportsRtl="true">
+    <application android:label="Top Private Plug Test" android:icon="@drawable/ic_launcher" android:theme="@style/AppTheme" android:allowBackup="false" android:usesCleartextTraffic="false" android:supportsRtl="true">
         <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
         </activity>
-        <provider android:name=".UpdateProvider" android:authorities="za.co.topprivateplug.updates" android:exported="false" android:grantUriPermissions="true"/>
+        <provider android:name=".UpdateProvider" android:authorities="za.co.topprivateplug.test.updates" android:exported="false" android:grantUriPermissions="true"/>
         <service android:name=".TunnelService" android:exported="false" android:foregroundServiceType="systemExempted" android:permission="android.permission.BIND_VPN_SERVICE">
             <intent-filter><action android:name="android.net.VpnService"/></intent-filter>
             <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false"/>
