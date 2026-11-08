@@ -242,3 +242,28 @@ Test sequence (manual owner-run, no secrets shared):
 
 Potential performance implication:
 - If 3X-UI enforces client disable/expiry/quota at the Xray endpoint, the app can potentially connect directly using its assigned unique credential after one-time backend provisioning. However, this is only safe after the above enforcement and revocation-latency tests, quota accounting behavior, and endpoint-to-carrier mapping are verified. Until then, keep existing app leases/heartbeats.
+
+
+## Disposable VLESS client test result reported by owner (2026-11-08)
+
+The owner reports that the newly created disposable VLESS test credential:
+- connected successfully while enabled;
+- stopped working after the client was disabled in 3X-UI.
+
+This is a positive functional result for server-side client disable/revocation on the tested VLESS inbound. It demonstrates that the endpoint can reject a disabled client without relying on the Android app to hide or block the connection.
+
+Evidence limitations:
+- The test method and exact rejection timing were not measured or independently observed by this project.
+- This test does not yet prove expiry enforcement, quota exhaustion enforcement, deletion/revocation behavior, traffic-accounting accuracy, or how quickly an already-established tunnel is terminated.
+- It does not prove the same behavior on the Trojan inbound or on the MTN/Telkom/Cell C carrier paths.
+- It does not yet prove that the previously imported app profile maps to this VLESS inbound.
+
+Next test sequence:
+1. Re-enable the disposable test client and verify it reconnects.
+2. Set a small finite quota on that disposable client only, then generate test traffic until the quota is exhausted. Verify whether traffic is actually blocked, not merely whether the counter reaches the limit.
+3. Use a short expiry on a disposable test client and verify a new connection is rejected after expiry. Check the panel's timezone and API expiry units.
+4. Measure disable-to-rejection latency for both a new connection and an already-established session.
+5. Test deletion of the disposable client and verify the credential is rejected.
+6. Repeat only on a dedicated test Trojan client if Trojan fast-path support is required.
+
+Do not alter existing customer clients or production inbounds. Keep current app lease/heartbeat enforcement until expiry, quota, revocation latency, traffic accounting, and endpoint/profile mapping are verified.
