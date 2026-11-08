@@ -91,6 +91,32 @@ def migrate(store):
                 db.execute(statement)
 
 
+def provision_staging_networks(store, raw):
+    """Seed missing carrier assignments from private staging configuration."""
+    try:
+        profiles = json.loads(raw)
+        if not isinstance(profiles, dict) or not profiles or set(profiles) - set(NETWORKS):
+            raise ValueError()
+        normalized = {carrier: xray.normalize(profile) for carrier, profile in profiles.items()}
+        if any(not is_vless(config) or insecure for config, _, _, _, insecure in normalized.values()):
+            raise ValueError()
+    except (ValueError, Fault):
+        raise SystemExit('Invalid staging carrier configuration. Check private service settings.') from None
+
+    with store.db() as db:
+        db.execute('BEGIN IMMEDIATE')
+        for carrier, (config, address, port, sni, insecure) in normalized.items():
+            if db.execute('SELECT 1 FROM customer_networks WHERE carrier=?', (carrier,)).fetchone():
+                continue
+            profile = identifier()
+            db.execute('INSERT INTO profiles(id,name,carrier,server,port,sni,tls_min,enabled) VALUES(?,?,?,?,?,?,?,1)',
+                       (profile, carrier + ' staging', carrier, address, port, sni, '1.2'))
+            db.execute('INSERT INTO xray_profiles(profile,config,insecure) VALUES(?,?,?)',
+                       (profile, json.dumps(config), int(insecure)))
+            db.execute('INSERT INTO customer_networks(carrier,profile,tested) VALUES(?,?,0)', (carrier, profile))
+            event(db, store.now(), 'staging-setup', carrier, 'network_configured')
+
+
 class Customers:
     def __init__(self, store):
         self.store = store

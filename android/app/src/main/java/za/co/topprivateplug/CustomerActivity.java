@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.VpnService;
+import android.net.Uri;
+import android.content.ActivityNotFoundException;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -365,7 +367,22 @@ public final class CustomerActivity extends Activity {
         gap(10);
         tunnel = label("", 15);
         tunnel.setGravity(Gravity.CENTER);
+        gap(18);
+        Button follow = button("Follow Creator on Facebook  ↗", this::openCreator);
+        follow.setTextColor(CYAN);
+        follow.setContentDescription("Follow Creator on Facebook for updates");
+        follow.setBackground(background(0xff0a263c, 0xff061624, 15, 0xff2380b0));
+        label("VPN news and updates", 12).setGravity(Gravity.CENTER);
         updateTunnel();
+    }
+
+    private void openCreator() {
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.facebook.com/ramashia997"));
+        try {
+            startActivity(intent);
+        } catch (ActivityNotFoundException ignored) {
+            message.setText("No browser is available to open Facebook.");
+        }
     }
 
     private TextView metric(LinearLayout stats, String caption) {
