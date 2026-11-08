@@ -41,9 +41,9 @@ def main():
     run(tools / 'aapt2', 'compile', '--dir', source / 'res', '-o', build / 'res.zip')
     ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
     manifest = ET.parse(source / 'AndroidManifest.xml')
-    manifest.getroot().set('package', 'za.co.topprivateplug.test')
+    manifest.getroot().set('package', 'za.co.topprivateplug')
     manifest.write(build / 'AndroidManifest.xml', encoding='utf-8', xml_declaration=True)
-    run(tools / 'aapt2', 'link', '-o', build / 'base.apk', '--manifest', build / 'AndroidManifest.xml',
+    run(tools / 'aapt2', 'link', '-o', build / 'base.apk', '--manifest', build / 'AndroidManifest.xml', '--rename-manifest-package', 'za.co.topprivateplug.test',
         '-I', android, '--java', build / 'gen', '--min-sdk-version', '26', '--target-sdk-version', '35',
         '-A', source / 'assets', '--version-code', '24', '--version-name', '0.1.23-test', '--debug-mode', build / 'res.zip')
     aar = ROOT / 'android' / 'app' / 'libs' / 'libv2ray.aar'
