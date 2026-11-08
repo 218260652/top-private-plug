@@ -303,9 +303,11 @@ class Customers:
             if (not expected or not isinstance(code, str) or len(code) > 128
                     or not secrets.compare_digest(code.encode('utf-8', 'surrogatepass'), expected.encode())):
                 raise Fault('Incorrect Cell C code', 403)
-        entry = db.execute('SELECT expires FROM customer_leases WHERE device=?',(row['device'],)).fetchone()
-        if entry and entry['expires'] > now:
-            raise Fault('This device already has a connection authorization', 409)
+        entry = db.execute('SELECT expires,seen,session FROM customer_leases WHERE device=?', (row['device'],)).fetchone()
+        # A failed startup may never send its first heartbeat or disconnect.
+        # Only the same device-bound session may replace that pending lease.
+        if entry and entry['expires'] > now and (entry['seen'] is not None or entry['session'] != row['session']):
+            raise Fault('This device already has an active VPN connection. Disconnect or wait 30 seconds.', 409)
         item = db.execute('SELECT config FROM xray_profiles WHERE profile=?',(p['profile'],)).fetchone()
         config = xray.normalize(json.loads(item['config']))[0]
         lease, seconds = identifier(), min(LEASE_SECONDS,row['expires']-now)

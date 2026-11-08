@@ -198,6 +198,7 @@ public final class CustomerActivity extends Activity {
             if (!busy) submit(this::fetchAccount, this::render);
             return true;
         });
+        menu.getMenu().add("Connection report").setOnMenuItemClickListener(item -> { showConnectionReport(); return true; });
         menu.getMenu().add("Support").setOnMenuItemClickListener(item -> { support(); return true; });
         menu.getMenu().add("Log out").setOnMenuItemClickListener(item -> {
             if (!busy) {
@@ -207,6 +208,22 @@ public final class CustomerActivity extends Activity {
             return true;
         });
         menu.show();
+    }
+
+    private void showConnectionReport() {
+        String report = "Selected carrier: " + carrier + "\nState: " + TunnelService.state + "\n" + ConnectionReport.snapshot();
+        TextView body = text(report, 13);
+        body.setPadding(dp(16), dp(12), dp(16), dp(12));
+        body.setTextIsSelectable(true);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(body);
+        new AlertDialog.Builder(this).setTitle("Connection report").setView(scroll)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Share", (dialog, which) -> {
+                Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, report);
+                try { startActivity(Intent.createChooser(send, "Share connection report")); }
+                catch (ActivityNotFoundException ignored) { message.setText("Select and copy the report text instead."); }
+            }).show();
     }
 
     private void support() {
@@ -476,6 +493,7 @@ public final class CustomerActivity extends Activity {
         tunnel.setTextColor("Connected".equals(state) ? 0xff68ec78 : MUTED);
         connect.setVisibility(idle ? View.VISIBLE : View.GONE);
         disconnect.setVisibility(idle ? View.GONE : View.VISIBLE);
+        disconnect.setText("Connected".equals(state) ? "DISCONNECT" : "CANCEL");
         connect.setEnabled(!busy && selectedAvailable());
         connect.setAlpha(connect.isEnabled() ? 1f : .55f);
         if (idle && !selectedAvailable()) tunnel.append("\n" + carrier + " profile unavailable");
