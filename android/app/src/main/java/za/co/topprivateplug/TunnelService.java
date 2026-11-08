@@ -160,7 +160,12 @@ public final class TunnelService extends VpnService {
             try(java.net.ServerSocket reservation=new java.net.ServerSocket(0,1,java.net.InetAddress.getByName("127.0.0.1"))) {
                 controlPort=reservation.getLocalPort();
             }
-            JSONObject saved=vault.staging ? null : vault.bootstrap(profileId);
+            JSONObject saved;
+            if (vault.staging) {
+                JSONObject profiles = vault.customerCache().optJSONObject("profiles");
+                JSONObject config = profiles == null ? null : profiles.optJSONObject(profileId);
+                saved = config == null ? null : new JSONObject().put("config", config);
+            } else saved = vault.bootstrap(profileId);
             if(saved!=null) {
                 progress("Starting saved VLESS or Trojan connection before account verification");
                 ConnectionReport.stage(ConnectionReport.Stage.SAVED_PROFILE_START);
@@ -182,11 +187,15 @@ public final class TunnelService extends VpnService {
             if (!"xray".equals(result.optString("engine"))) throw new Exception("Only imported connection profiles are supported. Ask your admin to replace this profile.");
             xrayLease=result.getString("lease"); hadLease=true;
             leaseDeadline=android.os.SystemClock.elapsedRealtime()+30000;
+            if (vault.staging) {
+                try { vault.saveCustomerConnection(accessToken, profileId, result.getJSONObject("config")); }
+                catch (Exception ignored) { /* The issued lease remains usable without a cached profile. */ }
+            }
             synchronized(xrayLock) {
                 if(!running.get()) return;
                 if(xray!=null) { xray.stop(); xray=null; }
             }
-            runXray(api, result);
+            runXray(api, result, saved != null);
         } catch (LinkageError error) {
             ConnectionReport.stage(ConnectionReport.Stage.ENGINE_LOAD_FAILED);
             if (running.get()) detail = "The Xray engine could not load on this phone. Install the complete current APK.";
@@ -223,7 +232,7 @@ public final class TunnelService extends VpnService {
         return "OTHER_ERROR".equals(category) ? CustomerMessage.connection() : "Connection failed: " + category.replace('_', ' ').toLowerCase(java.util.Locale.ROOT) + ".";
     }
 
-    private void runXray(Api api, JSONObject result) throws Exception {
+    private void runXray(Api api, JSONObject result, boolean startedWithProfile) throws Exception {
         JSONObject profile = result.getJSONObject("profile");
         String lease = result.getString("lease"); xrayLease = lease;
         if (!running.get()) return;
@@ -249,7 +258,7 @@ public final class TunnelService extends VpnService {
             ConnectionReport.stage(ConnectionReport.Stage.NATIVE_START);
             engine.start(config.toString(), tun.getFd());
             // Staging control requests stay reachable even if carrier traffic fails.
-            if (customer == null) Api.throughTunnel(new Vault(this).endpoint(),controlPort,engine::clearUpstreamStatus);
+            if (customer == null || startedWithProfile) Api.throughTunnel(new Vault(this).endpoint(),controlPort,engine::clearUpstreamStatus);
         }
         progress("Checking HTTPS traffic through the Xray tunnel");
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);

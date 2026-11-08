@@ -242,7 +242,7 @@ class Customers:
     def customer(self, op, token, data):
         now = self.store.now()
         with self.store.db() as db:
-            if op not in ('profile', 'networks', 'devices'):
+            if op not in ('profile', 'networks', 'devices', 'bootstrap'):
                 db.execute('BEGIN IMMEDIATE')
             row = self.authenticated(db, token, now)
             if op == 'logout':
@@ -265,6 +265,14 @@ class Customers:
             if op == 'networks':
                 profiles = {p['carrier']:p for p in self.network_rows(db)}
                 return {'networks': [profiles.get(name, {'carrier':name,'enabled':0,'tested':0}) for name in NETWORKS]}
+            if op == 'bootstrap':
+                profiles = {}
+                for profile in self.network_rows(db):
+                    carrier = profile['carrier']
+                    if carrier == CELL_C or not profile['enabled'] or profile['insecure']:
+                        continue
+                    profiles[carrier] = self.connection_config(db, profile)
+                return {'profiles': profiles}
             if op == 'devices':
                 return {'devices': self.devices(db, row['id'])}
             if op == 'revoke-device':
@@ -308,14 +316,18 @@ class Customers:
         # Only the same device-bound session may replace that pending lease.
         if entry and entry['expires'] > now and (entry['seen'] is not None or entry['session'] != row['session']):
             raise Fault('This device already has an active VPN connection. Disconnect or wait 30 seconds.', 409)
-        item = db.execute('SELECT config FROM xray_profiles WHERE profile=?',(p['profile'],)).fetchone()
-        config = xray.normalize(json.loads(item['config']))[0]
+        config = self.connection_config(db, p)
         lease, seconds = identifier(), min(LEASE_SECONDS,row['expires']-now)
         db.execute('DELETE FROM customer_leases WHERE device=?',(row['device'],))
         db.execute('INSERT INTO customer_leases VALUES(?,?,?,?,?,?,?,NULL)',
                    (digest(lease),row['device'],row['session'],carrier,p['profile'],p['version'],now+seconds))
         event(db,now,'customer',row['id'],'vpn_authorized')
         return {'engine':'xray','profile':p,'config':config,'lease':lease,'lease_seconds':seconds}
+
+    @staticmethod
+    def connection_config(db, profile):
+        item = db.execute('SELECT config FROM xray_profiles WHERE profile=?', (profile['profile'],)).fetchone()
+        return xray.normalize(json.loads(item['config']))[0]
 
     @staticmethod
     def devices(db, customer):
@@ -480,7 +492,7 @@ def install(app, store, peer, body, token):
     service = Customers(store)
     workers = asyncio.Semaphore(4)
     public_ops = {'login','refresh','challenge'}
-    read_ops = {'profile','subscription','networks','devices','status'}
+    read_ops = {'profile','subscription','networks','devices','status','bootstrap'}
     write_ops = {'password','logout','revoke-device','connect','heartbeat','disconnect'}
     purposes = {'customer-' + op for op in ('login','refresh','password','device','connect')}
 

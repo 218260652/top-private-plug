@@ -20,7 +20,7 @@ final class ConnectionReport {
     private static String route(String path) {
         for (String allowed : new String[]{"/v1/challenge", "/v1/connect", "/v1/activate", "/v1/status",
                 "/v1/profiles", "/v1/xray/heartbeat", "/v1/xray/disconnect",
-                "/v2/customer/challenge", "/v2/customer/connect", "/v2/customer/heartbeat", "/v2/customer/disconnect"})
+                "/v2/customer/challenge", "/v2/customer/bootstrap", "/v2/customer/connect", "/v2/customer/heartbeat", "/v2/customer/disconnect"})
             if (allowed.equals(path)) return allowed;
         return "other account request";
     }
@@ -44,6 +44,7 @@ final class ConnectionReport {
     }
     static synchronized String snapshot() {
         StringBuilder report = new StringBuilder("Top Private Plug connection report\nEvents since app launch (oldest first; last 48).\n");
+        report.append("Connection stages and HTTP status codes only.\n");
         if (events.isEmpty()) report.append("No connection events yet. Retry the account check or connection first.\n");
         for (String event : events) report.append(event).append('\n');
         return report.toString();

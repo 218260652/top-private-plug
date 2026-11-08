@@ -149,6 +149,17 @@ class CustomerStoreCases:
         result = self.call('connect', self.login(), {**self.signed('connect'), 'carrier':'Telkom'})
         self.assertEqual(result['config']['outbounds'][0]['protocol'], 'vless')
 
+    def test_login_bootstrap_excludes_cell_c_and_does_not_allocate_leases(self):
+        provision_staging_networks(self.store, json.dumps({carrier:vless() for carrier in ('MTN','Telkom','Cell C')}))
+        session = self.login()
+        with patch.dict(os.environ, {'TPP_CELL_C_CODE':'fixture-code'}):
+            result = self.call('bootstrap', session)
+        self.assertEqual(set(result['profiles']), {'MTN','Telkom'})
+        with self.store.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM customer_leases').fetchone()[0], 0)
+        self.service.admin('lifecycle', 'owner', {'action':'pause'}, self.user)
+        self.assert_fault(401, lambda: self.call('bootstrap', session))
+
     def test_cell_c_connection_requires_server_configured_code(self):
         profile = save(self.store, {'name':'Cell C fixture','carrier':'Cell C','config':vless()})
         self.service.admin('network','owner',{'carrier':'Cell C','profile':profile['id']})

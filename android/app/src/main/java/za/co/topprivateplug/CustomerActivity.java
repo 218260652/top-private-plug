@@ -63,7 +63,12 @@ public final class CustomerActivity extends Activity {
         if (!vault.staging) { finish(); return; }
         api = new CustomerApi(vault);
         if (state != null) pendingCarrier = state.getString("pendingCarrier");
-        if (vault.customerSession().has("marker")) {
+        JSONObject saved = vault.customerCache();
+        if (saved.has("account")) {
+            account = saved.optJSONObject("account");
+            networks = saved.optJSONArray("networks");
+            render();
+        } else if (vault.customerSession().has("marker")) {
             screen();
             brand(false, true);
             label("Loading…", 17).setGravity(Gravity.CENTER);
@@ -513,8 +518,12 @@ public final class CustomerActivity extends Activity {
     }
 
     private void fetchAccount() throws Exception {
+        String marker = vault.customerSession().optString("marker");
         account = api.call("profile", null);
-        if (account.optInt("must_change") == 0) networks = api.call("networks", null).getJSONArray("networks");
+        if (account.optInt("must_change") != 0) return;
+        networks = api.call("networks", null).getJSONArray("networks");
+        JSONObject profiles = api.call("bootstrap", null).getJSONObject("profiles");
+        vault.saveCustomerCatalog(marker, account, networks, profiles);
     }
 
     private interface Work { void run() throws Exception; }
