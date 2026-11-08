@@ -1,6 +1,7 @@
 """Staging customer accounts and VPN authorization, isolated from legacy access codes."""
 import asyncio
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -13,7 +14,8 @@ from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
 from . import xray
 from .store import Fault, digest
 
-NETWORKS = ('MTN', 'Telkom')
+CELL_C = 'Cell C'
+NETWORKS = ('MTN', 'Telkom', CELL_C)
 ACCESS_SECONDS = 300
 SESSION_SECONDS = 14 * 86400
 LEASE_SECONDS = 30
@@ -204,9 +206,9 @@ class Customers:
         for row in db.execute("""SELECT n.carrier,n.profile,CASE WHEN n.tested=p.version THEN 1 ELSE 0 END AS tested,
             p.name,p.version,p.enabled,x.insecure,x.config
             FROM customer_networks n JOIN profiles p ON p.id=n.profile
-            JOIN xray_profiles x ON x.profile=p.id WHERE n.carrier IN (?,?) ORDER BY n.carrier""", NETWORKS):
+            JOIN xray_profiles x ON x.profile=p.id WHERE n.carrier IN (?,?,?) ORDER BY n.carrier""", NETWORKS):
             item = dict(row)
-            if not is_vless(json.loads(item.pop('config'))):
+            if not is_vless(json.loads(item.pop('config'))) or (item['carrier'] == CELL_C and not os.environ.get('TPP_CELL_C_CODE')):
                 item['enabled'] = item['tested'] = 0
             profiles.append(item)
         return profiles
@@ -269,6 +271,12 @@ class Customers:
         p = next((profile for profile in self.network_rows(db) if profile['carrier']==carrier), None)
         if not p or not p['enabled'] or p['insecure']:
             raise Fault('This network profile is unavailable', 403)
+        if carrier == CELL_C:
+            code = data.get('carrier_code')
+            expected = os.environ.get('TPP_CELL_C_CODE', '')
+            if (not expected or not isinstance(code, str) or len(code) > 128
+                    or not secrets.compare_digest(code.encode('utf-8', 'surrogatepass'), expected.encode())):
+                raise Fault('Incorrect Cell C code', 403)
         entry = db.execute('SELECT expires FROM customer_leases WHERE device=?',(row['device'],)).fetchone()
         if entry and entry['expires'] > now:
             raise Fault('This device already has a connection authorization', 409)
@@ -460,6 +468,8 @@ def install(app, store, peer, body, token):
         if op == 'refresh':
             service.attempt('refresh:' + digest(source), 90, 60)
             return service.refresh(data)
+        if op == 'connect' and data.get('carrier') == CELL_C:
+            service.attempt('cell-c:' + digest(source), 20, 60)
         if op in ('subscription','status'):
             op = 'profile'
         return service.customer(op,bearer,data)
