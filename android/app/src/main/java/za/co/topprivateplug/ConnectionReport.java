@@ -44,6 +44,7 @@ final class ConnectionReport {
     }
     static synchronized String snapshot() {
         StringBuilder report = new StringBuilder("Top Private Plug connection report\nEvents since app launch (oldest first; last 48).\n");
+        report.append("Connection stages and HTTP status codes only.\n");
         if (events.isEmpty()) report.append("No connection events yet. Retry the account check or connection first.\n");
         for (String event : events) report.append(event).append('\n');
         return report.toString();
