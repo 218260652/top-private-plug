@@ -9,38 +9,40 @@
 <script defer src="/assets/customers.js"></script>
 </head>
 <body class="customer-admin">
+<a class="skip-link" href="#main">Skip to main content</a>
 <aside>
 <a class="brand" href="/admin/"><img src="/assets/icon.svg" alt=""><span>Top Private Plug<small>VPN ADMIN</small></span></a>
-<nav aria-label="Dashboard"><a href="#accounts">Customer accounts</a><a href="#create">Create account</a><a href="#configuration">Network settings</a><a href="#activity">Audit activity</a></nav>
+<nav id="dashboardNav" aria-label="Dashboard" hidden><a href="#accounts">Customer accounts</a><a href="#create">Create account</a><a href="#plans">Subscription plans</a><a href="#configuration">Network settings</a><a href="#activity">Audit activity</a></nav>
 <div class="aside-bottom"><span class="dot"></span>Staging workspace</div>
 </aside>
-<main>
+<main id="main" tabindex="-1">
 <header class="masthead"><div><div class="eyebrow">CUSTOMER ADMINISTRATION</div><h1>Customer accounts</h1><p>Manage paid VPN access and subscription expiry.</p></div><span class="tag">STAGING</span></header>
 <p id="message" role="status" aria-live="polite"></p>
 <form id="login" class="card login">
 <h2>Administrator sign-in</h2>
 <label>Username <input name="username" autocomplete="username" required></label>
 <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
-<label>One-time code <input name="otp" autocomplete="one-time-code" inputmode="numeric"></label>
+<label>One-time code (if enabled) <input name="otp" autocomplete="one-time-code" inputmode="numeric"></label>
 <button class="primary">Sign in</button>
+<p class="muted">Use your administrator account to manage customer access.</p>
 </form>
 <div id="dashboard" hidden>
 <div class="toolbar"><h2>Overview</h2><button id="logout" type="button">Sign out</button></div>
 <ul id="overview" class="metrics"></ul>
 <div class="account-layout">
-<section class="card" id="accounts"><h2>Find an account</h2>
+<section class="card" id="accounts"><h2>Customer accounts</h2><p class="section-copy">Search for a customer, then select Manage to update their access.</p>
 <form id="search"><label>Search by username or name <input name="q" type="search"></label><button>Search</button></form>
-<ul id="users" class="rows"></ul>
+<p id="searchCount" class="muted" aria-live="polite"></p><ul id="users" class="rows"></ul>
 </section>
 <form id="create" class="card"><div class="eyebrow">NEW SUBSCRIPTION</div><h2>Create account</h2>
 <label>Username <input name="username" maxlength="40" required></label>
-<label>Password (blank to generate) <input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>
+<label>Password (12–128 characters; blank to generate) <input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>
 <label>Duration in days <input name="days" type="number" min="1" max="366" value="30" required></label>
 <button class="primary">Create account</button>
 </form></div>
 <p id="temporary" class="code-result" hidden></p>
-<section id="detail" class="card" hidden>
-<h3 id="customerTitle"></h3>
+<section id="detail" class="card" tabindex="-1" aria-labelledby="customerTitle" hidden>
+<h2 id="customerTitle"></h2><p id="customerSummary" class="section-copy"></p>
 <div class="lifecycle" aria-label="Account actions">
 <form id="renew"><label>Renewal days <input name="days" type="number" min="1" max="366" value="30" required></label><button class="primary">Renew</button></form>
 <button type="button" id="pause">Pause</button><button type="button" id="suspend">Suspend</button><button type="button" id="resume">Resume access</button><button type="button" id="delete" class="danger">Delete account</button>
@@ -54,19 +56,20 @@
 <label>Status <select name="state"><option value="active">Active</option><option value="suspended">Suspended</option><option value="paused">Paused</option></select></label>
 <button>Save customer</button>
 <button type="button" id="reset">Reset password</button>
-<button type="button" id="revoke">Permanently revoke account</button>
+<button type="button" id="revoke" class="danger">Permanently revoke account</button>
 </form></details>
-<h4>Devices</h4><ul id="devices"></ul>
-<h4>Customer history</h4><ul id="history"></ul>
+<h4>Devices</h4><ul id="devices" class="rows"></ul>
+<h4>Customer history</h4><ul id="history" class="rows"></ul>
 </section>
-<section id="configuration" class="card"><h2>Subscription plans</h2><ul id="planList"></ul>
+<section id="plans" class="card"><h2>Subscription plans</h2><p class="section-copy">Maintain reusable durations and prices. Account creation uses the duration entered above.</p><ul id="planList"></ul>
 <form id="plan">
 <label>Name <input name="name" required maxlength="80"></label>
 <label>Days <input name="days" type="number" min="1" max="366" required></label>
 <label>Price in cents <input name="price_cents" type="number" min="0" max="100000000" required></label>
-<button>Save plan</button>
+<button id="savePlan">Save plan</button><button id="cancelPlan" type="button" hidden>Cancel edit</button>
 </form>
-<h2>Network profiles</h2><p><a href="/admin/legacy/">Import or update VLESS profiles</a></p><div id="networks"></div></section>
+</section>
+<section id="configuration" class="card"><h2>Network profiles</h2><p class="section-copy">Assign an imported profile to each carrier. Mark it verified only after testing on that carrier.</p><p><a href="/admin/legacy/">Import or update VLESS profiles</a></p><div id="networks"></div></section>
 <section id="activity" class="card"><h2>Recent audit events</h2><ul id="events" class="rows"></ul></section>
 </div>
 </main>
