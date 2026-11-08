@@ -1,0 +1,29 @@
+databases:
+  - name: top-private-plug-test-db
+    plan: free
+    region: frankfurt
+    databaseName: top_private_plug_test_db
+    user: top_private_plug_test_db_user
+    postgresMajorVersion: 16
+
+services:
+  - type: web
+    name: top-private-plug-test-api
+    runtime: python
+    plan: free
+    region: frankfurt
+    repo: https://github.com/218260652/top-private-plug
+    branch: build/top-private-plug-test-apk-20261108
+    buildCommand: pip install -r requirements.lock
+    startCommand: python -m backend.hosted
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: top-private-plug-test-db
+          property: connectionString
+      - key: TPP_MIGRATION_URL
+        fromDatabase:
+          name: top-private-plug-test-db
+          property: connectionString
+      - key: TPP_BOOTSTRAP_PASSWORD
+        generateValue: true
