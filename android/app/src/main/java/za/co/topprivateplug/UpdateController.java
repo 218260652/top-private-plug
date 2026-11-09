@@ -18,7 +18,9 @@ final class UpdateController {
     volatile String status="Check for the latest app update.",versionName="";volatile boolean checking,downloading;
     private JSONObject release;private volatile boolean closed;
     UpdateController(MainActivity a){this.a=a;try{release=new JSONObject(a.prefs.getString("update_release","{}"));versionName=release.optString("version_name","");}catch(Exception ignored){} }
-    boolean available(){return release!=null&&release.optInt("version_code")>UpdatePolicy.VERSION_CODE;}
+    /** The installed package is authoritative, so a stale or shared feed cannot offer an older build. */
+    int installedCode(){try{return a.getPackageManager().getPackageInfo(a.getPackageName(),0).versionCode;}catch(Exception ignored){return UpdatePolicy.VERSION_CODE;}}
+    boolean available(){return release!=null&&release.optInt("version_code")>installedCode();}
     File apk(){return new File(a.getFilesDir(),"updates/pilot.apk");}
     boolean ready(){return available()&&apk().isFile()&&release.optString("sha256").equals(a.prefs.getString("downloaded_sha",""));}
     void paint(){a.handler.post(()->{if(!closed&&a.visible&&"Notifications".equals(a.tab))a.render();});}
@@ -29,7 +31,7 @@ final class UpdateController {
         HttpsURLConnection c=(HttpsURLConnection)(proxy==null?url.openConnection():url.openConnection(proxy));c.setConnectTimeout(12000);c.setReadTimeout(20000);c.setInstanceFollowRedirects(false);c.setRequestProperty("Accept","application/json, application/vnd.android.package-archive");return c;
     }
     void check(boolean manual){if(closed||checking||downloading)return;if(!"Connected".equals(TunnelService.state)&&!"Disconnected".equals(TunnelService.state))return;long now=System.currentTimeMillis();if(!manual&&now-a.prefs.getLong("update_checked",0)<6*3600000L)return;checking=true;status="Checking for updates…";paint();worker.execute(()->{HttpsURLConnection c=null;try{c=open(UpdatePolicy.MANIFEST);if(c.getResponseCode()!=200)throw new IOException("Update service returned "+c.getResponseCode());ByteArrayOutputStream bytes=new ByteArrayOutputStream();try(InputStream in=c.getInputStream()){byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1){bytes.write(b,0,n);if(bytes.size()>65536)throw new IOException("Update response too large.");}}
-        JSONObject next=new JSONObject(bytes.toString("UTF-8"));validate(next);release=next;versionName=next.getString("version_name");a.prefs.edit().putString("update_release",next.toString()).putLong("update_checked",now).apply();status=available()?"New update available · "+versionName:"You're up to date · 0.2.14";
+        JSONObject next=new JSONObject(bytes.toString("UTF-8"));validate(next);release=next;versionName=next.getString("version_name");a.prefs.edit().putString("update_release",next.toString()).putLong("update_checked",now).apply();status=available()?"New update available · "+versionName:"You're up to date · "+UpdatePolicy.VERSION_NAME;
         if(available()&&a.prefs.getBoolean("notify_updates",true))notifyUser("updates",41,"New update available",versionName+" · tap to download",true);
     }catch(Exception error){status="Update check unavailable. Try again when your connection is working.";}finally{if(c!=null)c.disconnect();checking=false;paint();}});}
     void validate(JSONObject r)throws Exception{UpdatePolicy.validate(r.getInt("version_code"),r.getString("version_name"),r.getString("apk_url"),r.getString("sha256"),r.getLong("size"));}

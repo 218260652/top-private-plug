@@ -42,3 +42,12 @@ of assuming a protocol name, so a VLESS or Trojan profile cannot break account a
 ## Version
 
 `versionCode 19`, `versionName 0.2.14`, APK `Top-private-Plug-0.2.14-pilot.apk`.
+
+## Version reporting (rebuilt 0.2.14)
+
+The updater compared the published feed against a hardcoded `VERSION_CODE` of 18 while
+the installed pilot is 19, so a stale or shared feed could present an older build as an
+update. `available()` now compares against the installed package's `versionCode`, which
+cannot go stale, and rejects anything that is not strictly newer. The version shown on
+About, in the support report and in the update status comes from one constant
+(`UpdatePolicy.VERSION_NAME`) that must match `build.gradle` and the build script.
