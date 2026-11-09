@@ -84,12 +84,16 @@ final class Vault {
                 JSONObject data = new JSONObject(memoryCustomerCache != null ? memoryCustomerCache
                     : decrypt(prefs.getString("customer_bootstrap", "")));
                 JSONObject session = customerSession();
-                if (session.has("marker") && session.optString("marker").equals(data.optString("marker"))
-                        && data.getJSONObject("account").getLong("expires") > System.currentTimeMillis() / 1000)
+                if (session.has("marker") && session.optString("marker").equals(data.optString("marker")))
                     return data;
             } catch (Exception ignored) {}
             return new JSONObject();
         }
+    }
+
+    JSONObject savedCustomerProfile(String carrier) {
+        JSONObject profiles = customerCache().optJSONObject("profiles");
+        return profiles == null ? null : profiles.optJSONObject(carrier);
     }
 
     void saveCustomerCatalog(String marker, JSONObject account, JSONArray networks, JSONObject profiles) throws Exception {
