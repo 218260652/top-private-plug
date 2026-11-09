@@ -309,6 +309,14 @@ public final class TunnelService extends VpnService {
             // Staging control requests stay reachable even if carrier traffic fails.
             if (customer == null || startedWithProfile) Api.throughTunnel(new Vault(this).endpoint(),controlPort,engine::clearUpstreamStatus);
         }
+        if (customer != null) {
+            progress("Verifying your account on the started VPN");
+            ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_CHECK);
+            JSONObject check = customer.call("heartbeat", new JSONObject().put("lease", lease));
+            if (!check.optBoolean("ok")) throw new Exception("Account check failed.");
+            leaseDeadline = android.os.SystemClock.elapsedRealtime() + leaseMillis(check);
+            ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_CHECK_OK);
+        }
         progress("Checking HTTPS traffic through the Xray tunnel");
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
         // Use the pinned core's HTTPS connectivity target. Admin-host reachability
@@ -338,12 +346,6 @@ public final class TunnelService extends VpnService {
             throw error;
         }
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_OK);
-        if (customer != null) {
-            if (!running.get()) return;
-            JSONObject check = customer.call("heartbeat", new JSONObject().put("lease", lease));
-            if (!check.optBoolean("ok")) throw new Exception("Account check failed.");
-            leaseDeadline = android.os.SystemClock.elapsedRealtime() + leaseMillis(check);
-        }
         synchronized (this) {
             if (!running.get()) return;
             connectedAt=android.os.SystemClock.elapsedRealtime();
