@@ -51,3 +51,14 @@ update. `available()` now compares against the installed package's `versionCode`
 cannot go stale, and rejects anything that is not strictly newer. The version shown on
 About, in the support report and in the update status comes from one constant
 (`UpdatePolicy.VERSION_NAME`) that must match `build.gradle` and the build script.
+
+## Why the phone showed an old version
+
+The published update feed (`/updates/latest.json`) serves
+`version_code 23 / version_name 0.1.22-pilot`. Any build numbered below 23 is
+therefore told that 0.1.22 is a newer release, downloads it and installs it,
+which is why the app fell back to a 0.1.x version. The 0.2.14 build is now
+versionCode 24 so it is newer than that stale feed entry, and the updater
+compares against the installed package instead of a constant. The feed itself
+must be republished as 0.2.14 from the downloads site; until then the app
+correctly reports itself as up to date.

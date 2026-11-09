@@ -5,7 +5,7 @@ import java.net.URI;
 /** Reject arbitrary update sources before downloading any executable bytes. */
 final class UpdatePolicy {
     // Must match versionCode/versionName in android/app/build.gradle and tools/build_android.py.
-    static final int VERSION_CODE=19;
+    static final int VERSION_CODE=24;
     static final String VERSION_NAME="0.2.14";
     static final String HOST="top-private-plug-downloads.ramashiaemily.chatgpt.site";
     static final String MANIFEST="https://"+HOST+"/updates/latest.json";

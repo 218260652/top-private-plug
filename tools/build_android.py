@@ -45,7 +45,7 @@ def main():
     manifest.write(build / 'AndroidManifest.xml', encoding='utf-8', xml_declaration=True)
     run(tools / 'aapt2', 'link', '-o', build / 'base.apk', '--manifest', build / 'AndroidManifest.xml',
         '-I', android, '--java', build / 'gen', '--min-sdk-version', '26', '--target-sdk-version', '35',
-        '-A', source / 'assets', '--version-code', '19', '--version-name', '0.2.14-pilot', '--debug-mode', build / 'res.zip')
+        '-A', source / 'assets', '--version-code', '24', '--version-name', '0.2.14-pilot', '--debug-mode', build / 'res.zip')
     aar = ROOT / 'android' / 'app' / 'libs' / 'libv2ray.aar'
     if not aar.exists():
         raise SystemExit('Build the pinned libv2ray.aar first; see tools/build_xray.sh')
