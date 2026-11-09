@@ -5,6 +5,8 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.Network;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -34,6 +36,8 @@ public final class TunnelService extends VpnService {
     private int retryAttempt;
     private String activeProfile, accessToken, accountOrigin;
     private Runnable retryTask;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private volatile long connectedAtMs;
 
     private void requestStop() {
         reconnectAllowed = false;
@@ -106,6 +110,7 @@ public final class TunnelService extends VpnService {
         activeProfile = intent.getStringExtra("profile_id");
         accessToken = vault.token(); accountOrigin = vault.endpoint();
         retryAttempt = 0; reconnectAllowed = true;
+        watchNetwork();
         beginAttempt();
         return START_NOT_STICKY;
     }
@@ -182,16 +187,26 @@ public final class TunnelService extends VpnService {
             if (running.get()) detail = "The Xray engine could not load on this phone. Install the complete current APK.";
         } catch (Exception error) {
             if (running.get()) {
+                // A 409 means the previous lease is still closing on the server.
+                // That is recoverable on mobile networks, unlike an auth failure.
+                boolean leaseConflict = error instanceof Api.HttpError && ((Api.HttpError)error).status == 409;
                 XrayEngine engine = xray;
                 int proxyStatus=engine==null?0:engine.upstreamStatus();
                 if(proxyStatus!=0){error=new ProxyFailure(proxyStatus);proxyFailure=true;}
                 retryFailure=RetryPolicy.transientFailure(error);
+                if (leaseConflict) {
+                    retryFailure = true; hadLease = true;
+                    ConnectionReport.stage(ConnectionReport.Stage.LEASE_CONFLICT);
+                }
                 ConnectionReport.failure(null, error);
-                detail = error instanceof Api.HttpError ? CustomerMessage.forStatus(((Api.HttpError)error).status) : CustomerMessage.connection();
+                detail = leaseConflict ? "The previous session is still closing on the server. Reconnecting automatically."
+                    : error instanceof Api.HttpError ? CustomerMessage.forStatus(((Api.HttpError)error).status) : CustomerMessage.connection();
             }
         } finally {
-            stopTunnel();
+            // Release the server lease while the tunnel can still carry the request,
+            // so the next attempt is not rejected as an overlapping connection.
             if (xrayLease != null) try { new Api(new Vault(this)).request("/v1/xray/disconnect", new JSONObject().put("lease", xrayLease), true); } catch (Exception ignored) {}
+            stopTunnel();
         }
     }
     private void runXray(Api api, JSONObject result) throws Exception {
@@ -202,9 +217,12 @@ public final class TunnelService extends VpnService {
         progress("Creating the Android VPN interface");
         ConnectionReport.stage(ConnectionReport.Stage.VPN_INTERFACE);
         // Native sockets bypass the TUN; API calls explicitly use its loopback control proxy.
+        // IPv6 stays routed into the tunnel so nothing leaks to the carrier, and
+        // TunnelConfig fails it fast because supplier servers have no IPv6 egress.
         Builder builder = new Builder().setSession("Top private Plug")
             .setMtu(1400).addAddress("10.99.0.2", 30).addAddress("fd00:99::2", 126)
-            .addRoute("0.0.0.0", 0).addRoute("::", 0).addDnsServer("1.1.1.1").setBlocking(false);
+            .addRoute("0.0.0.0", 0).addRoute("::", 0)
+            .addDnsServer("1.1.1.1").addDnsServer("8.8.8.8").setBlocking(false);
         builder.addDisallowedApplication(getPackageName());
         XrayEngine engine;
         synchronized (xrayLock) {
@@ -220,15 +238,20 @@ public final class TunnelService extends VpnService {
             engine.start(config.toString(), tun.getFd());
             Api.throughTunnel(new Vault(this).endpoint(),controlPort,engine::clearUpstreamStatus);
         }
+        // Start the 30-second budget once the core runs, not while Android is
+        // still creating the interface on a slow mobile network.
+        leaseDeadline = android.os.SystemClock.elapsedRealtime() + 30000;
         progress("Checking HTTPS traffic through the Xray tunnel");
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
         // Use the pinned core's HTTPS connectivity target. Admin-host reachability
         // is checked independently by authenticated API calls and heartbeats.
         latency = engine.probe("");
+        if (latency < 0) latency = engine.probe("https://www.gstatic.com/generate_204");
         if (latency < 0) throw new RetryPolicy.TransportFailure("The tunnel HTTPS check failed.");
         synchronized (this) {
             if (!running.get()) return;
             connectedAt=android.os.SystemClock.elapsedRealtime();
+            connectedAtMs=connectedAt;
             state = "Connected";
             ConnectionReport.stage(ConnectionReport.Stage.CONNECTED);
             detail = profile.optBoolean("insecure_tls") ? "Test profile: server certificate verification is disabled." : "Your connection is active.";
@@ -297,8 +320,37 @@ public final class TunnelService extends VpnService {
             }
         }, "tpp-tunnel-cleanup").start();
     }
+    /** Reconnect when Android moves the default network, instead of waiting for the lease watchdog. */
+    private void watchNetwork() {
+        if (networkCallback != null) return;
+        try {
+            ConnectivityManager manager = getSystemService(ConnectivityManager.class);
+            if (manager == null) return;
+            networkCallback = new ConnectivityManager.NetworkCallback() {
+                @Override public void onLost(Network network) { networkChanged(); }
+            };
+            manager.registerDefaultNetworkCallback(networkCallback);
+        } catch (Exception ignored) { networkCallback = null; }
+    }
+    private void networkChanged() {
+        if (!running.get() || retryPending || !"Connected".equals(state)) return;
+        // Ignore the handover Android performs while the interface is being built.
+        if (android.os.SystemClock.elapsedRealtime() - connectedAtMs < 8000) return;
+        ConnectionReport.stage(ConnectionReport.Stage.NETWORK_CHANGED);
+        retryFailure = true; hadLease = false;
+        detail = "Mobile network changed. Reconnecting…";
+        stopTunnel();
+    }
+    private void unwatchNetwork() {
+        if (networkCallback == null) return;
+        try {
+            ConnectivityManager manager = getSystemService(ConnectivityManager.class);
+            if (manager != null) manager.unregisterNetworkCallback(networkCallback);
+        } catch (Exception ignored) {}
+        networkCallback = null;
+    }
     @Override public void onRevoke() { requestStop(); }
-    @Override public void onDestroy() { requestStop(); super.onDestroy(); }
+    @Override public void onDestroy() { unwatchNetwork(); requestStop(); super.onDestroy(); }
 }
 
 

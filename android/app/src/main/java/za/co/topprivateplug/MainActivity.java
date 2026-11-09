@@ -30,7 +30,7 @@ public final class MainActivity extends Activity {
     final Runnable poll=new Runnable(){public void run(){if(!visible)return;long now=SystemClock.elapsedRealtime();
         boolean connected="Connected".equals(TunnelService.state);meter.sample(connected,TunnelService.uploaded,TunnelService.downloaded,now);uploadRate=meter.uploadMbps;downloadRate=meter.downloadMbps;
         if(connected){liveSamples.add((float)(uploadRate+downloadRate));if(liveSamples.size()>45)liveSamples.remove(0);}
-        if(!busy&&!refreshing&&!vault.token().isEmpty()&&now>=nextAccountRefresh&&("Connected".equals(TunnelService.state)||("Disconnected".equals(TunnelService.state)&&NetworkState.validated(MainActivity.this)))){nextAccountRefresh=now+10000;refresh();}
+        if(!busy&&!refreshing&&!vault.token().isEmpty()&&now>=nextAccountRefresh&&("Connected".equals(TunnelService.state)||("Disconnected".equals(TunnelService.state)&&NetworkState.usable(MainActivity.this)))){nextAccountRefresh=now+10000;refresh();}
         if(renderedBalanceFresh!=balanceFresh()||!renderedTunnelState.equals(TunnelService.state)||!renderedTunnelDetail.equals(TunnelService.detail))render();else updateLiveLabels();
         handler.postDelayed(this,1000);
     }};
@@ -115,7 +115,7 @@ public final class MainActivity extends Activity {
     void servicePage(){title("Service settings","Manage saved network configurations.");carriers();savedProfileStatus(content);}
     void privacyPage(){title("Privacy & security","Understand your connection and privacy.");LinearLayout c=card();add(c,text("Device keys are stored in Android Keystore. Saved access and connection profiles are encrypted on your phone. The service records account status, activation time and upload/download totals. The app does not request contacts, location or media access.\n\nCertificate verification depends on the assigned VPN profile. Profiles with verification disabled show a test warning on Home.\n\nUpdates are checked against the expected package name, file checksum and your installed signing certificate before Android's installer opens.\n\nThe VPN starts only after fresh account approval. Always-on VPN and a kill switch are not included in this pilot.",14,MUTED,false),0);settingSwitch("Reduce motion","Pause decorative glows and planet movement","reduce_motion",false);row(content,"shield","Android VPN settings","Manage system VPN preferences",CYAN,()->startActivity(new Intent(android.provider.Settings.ACTION_VPN_SETTINGS)));}
     void supportPage(){title("Support & help","Help with your access and connection.");row(content,"chat","WhatsApp support",PurchaseRequest.DISPLAY_PHONE,MINT,()->openUrl(PurchaseRequest.supportUrl(carrier,account==null?null:account.optString("id",null))));LinearLayout c=card();add(c,text("Connection help",19,TEXT,true),10);add(c,text("Save your assigned profile once on Wi-Fi. Then switch to mobile data and connect.\n\nIf your connection is interrupted, allow automatic reconnect to finish or try again shortly.\n\nIf access cannot be verified, contact WhatsApp support. Avoid uninstalling or clearing app data while troubleshooting.",14,MUTED,false),0);}
-    void aboutPage(){title("About","Top private Plug VPN");LinearLayout c=card();add(c,text("Top private Plug\nVersion 0.1.17",22,TEXT,true),13);add(c,text("An Android client for your admin's assigned VLESS and Trojan profiles. Network compatibility depends on your assigned profile and carrier. This app does not supply a mobile data bundle.\n\nAndroidLibXrayLite · LGPL-3.0\nXray-core · MPL-2.0",14,MUTED,false),16);add(c,button("Open-source licences",false,v->showLicenses()),0);}
+    void aboutPage(){title("About","Top private Plug VPN");LinearLayout c=card();add(c,text("Top private Plug\nVersion 0.2.14",22,TEXT,true),13);add(c,text("An Android client for your admin's assigned VLESS and Trojan profiles. Network compatibility depends on your assigned profile and carrier. This app does not supply a mobile data bundle.\n\nAndroidLibXrayLite · LGPL-3.0\nXray-core · MPL-2.0",14,MUTED,false),16);add(c,button("Open-source licences",false,v->showLicenses()),0);}
     void accountRecovery(){LinearLayout c=card();add(c,text("Access saved",21,TEXT,true),9);add(c,text("Your login is saved. Connect using a saved profile or refresh your account on Wi-Fi.",14,MUTED,false),13);if(hasSavedProfile())add(c,button("Connect using saved profile",true,v->toggle()),10);add(c,button("Retry account check",false,v->refresh()),9);}
     AccessState.State accessState(){return AccessState.resolve(!vault.token().isEmpty(),account!=null,account==null?"":account.optString("status"));}
     void openUrl(String url){try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE));}catch(ActivityNotFoundException e){message("Install a browser or WhatsApp to open this link.");}}
@@ -136,7 +136,7 @@ public final class MainActivity extends Activity {
         } catch(Exception ignored) { return "Current network: unknown\n"; }
     }
     void showConnectionReport() {
-        final String report="Top private Plug support\nNetwork: "+carrier+"\nConnection: "+TunnelService.state+"\nVersion: 0.1.17";
+        final String report="Top private Plug support\nNetwork: "+carrier+"\nConnection: "+TunnelService.state+"\nVersion: 0.2.14";
         TextView body=text(report,12,TEXT,false);body.setTextIsSelectable(true);body.setPadding(dp(16),dp(16),dp(16),dp(16));
         ScrollView scroll=new ScrollView(this);scroll.addView(body);
         new AlertDialog.Builder(this).setTitle("Connection report").setView(scroll)
@@ -188,7 +188,7 @@ public final class MainActivity extends Activity {
         if(!"Disconnected".equals(TunnelService.state)){startService(new Intent(this,TunnelService.class).setAction("STOP"));handler.postDelayed(this::render,300);return;}
         if(busy)return;
         if(refreshing){message("Wait for connection settings to finish saving, then connect.");return;}
-        if(!hasSavedProfile()&&!NetworkState.validated(this)){message("No saved connection settings for "+carrier+". Turn on Wi-Fi, tap Refresh connection settings, and wait for Connection settings saved. Then test mobile data again.");return;}
+        if(!hasSavedProfile()&&!NetworkState.usable(this)){message("No saved connection settings for "+carrier+". Turn on Wi-Fi, tap Refresh connection settings, and wait for Connection settings saved. Then test mobile data again.");return;}
         AccessState.State access=accessState();
         if(access==AccessState.State.ACTIVATION_REQUIRED){codeDialog(false);return;}
         if(access==AccessState.State.CHECK_REQUIRED && !hasSavedProfile()){
@@ -198,7 +198,7 @@ public final class MainActivity extends Activity {
         if(access==AccessState.State.INACTIVE && !hasSavedProfile()){message("The service last reported your account as "+account.optString("status","unavailable")+". Retry the account check or contact your admin.");return;}
         JSONArray available=carrierProfiles();if(available.length()==0){message("No assigned profile for "+carrier+".");return;}
         boolean found=false;for(int i=0;i<available.length();i++)if(available.optJSONObject(i).optString("id").equals(selectedProfile))found=true;
-        if(!found || (!NetworkState.validated(this) && vault.bootstrap(selectedProfile)==null)) {
+        if(!found || (!NetworkState.usable(this) && vault.bootstrap(selectedProfile)==null)) {
             selectedProfile=available.optJSONObject(0).optString("id");
             for(int i=0;i<available.length();i++) if(vault.bootstrap(available.optJSONObject(i).optString("id"))!=null) {selectedProfile=available.optJSONObject(i).optString("id");break;}
         }
@@ -255,7 +255,7 @@ if(carrierProfiles().length()==0&&profiles.length()>0)carrier=profiles.optJSONOb
     void refresh() { refresh(false); }
     void refresh(boolean replaceSaved) {
         if(!"Disconnected".equals(TunnelService.state)&&!"Connected".equals(TunnelService.state))return;
-        if("Disconnected".equals(TunnelService.state)&&!NetworkState.validated(this)) {
+        if("Disconnected".equals(TunnelService.state)&&!NetworkState.usable(this)) {
             lastError=hasSavedProfile()?"Mobile internet is unavailable. Tap Connect to verify through your saved profile.":"No saved connection settings for "+carrier+". Use Wi-Fi once and tap Refresh connection settings.";render();return;
         }
         final String token=vault.token(), endpoint=vault.endpoint(); runNetwork(()->{JSONObject a;try{a=api.request("/v1/status",null,true);}catch(Exception e){handler.post(()->{if(token.equals(vault.token())&&endpoint.equals(vault.endpoint()))accountSyncedAt=0;});throw e;}handler.post(()->{if(token.equals(vault.token())&&endpoint.equals(vault.endpoint())){account=a;accountSyncedAt=SystemClock.elapsedRealtime();render();}});JSONArray p=api.request("/v1/profiles",null,true).getJSONArray("profiles");if(token.equals(vault.token())&&endpoint.equals(vault.endpoint())){vault.catalog(p);if("Disconnected".equals(TunnelService.state))api.prepareProfiles(p,replaceSaved);}JSONArray history=tab.equals("Usage")?fetchHistory():null;handler.post(()->{if(!token.equals(vault.token())||!endpoint.equals(vault.endpoint()))return;updates.accountAlerts(a);profiles=p;if(history!=null)points=history;chooseCarrier();render();});},true); }

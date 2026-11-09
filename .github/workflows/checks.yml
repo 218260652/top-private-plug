@@ -116,11 +116,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          tag="pilot-0.1.17-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          zip -j Top-private-Plug-0.1.17-pilot.zip Top-private-Plug-0.1.17-pilot.apk
-          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.17-ui-screenshots.zip > SHA256SUMS
-          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.17 pilot" --prerelease --notes "Fixes PostgreSQL usage refresh for active shared trials and tests 10 GB accounting without duplicate charging. Samples tunnel traffic every second and syncs counters every five seconds. Adds a black interface, clear stale-balance state and customer-safe messages without server credentials. Preserves MTN, Telkom and Cell C, account authorization and certificate checks. Physical-device carrier validation is still required."
-          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.17-ui-screenshots.zip SHA256SUMS
+          tag="pilot-0.2.14-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          zip -j Top-private-Plug-0.2.14-pilot.zip Top-private-Plug-0.2.14-pilot.apk
+          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.2.14-ui-screenshots.zip > SHA256SUMS
+          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.2.14" --notes "0.2.14 targets the VLESS/Xray connection and reconnect failures on MTN and Telkom. IPv6 stays routed into the tunnel but now fails fast, so Android falls back to IPv4 instead of stalling on AAAA answers a supplier server cannot reach. A second DNS resolver is advertised to the tunnel. A 409 lease conflict is treated as recoverable and retried after the lease cooldown instead of ending the connection, the server lease is released before cleanup, and a network change now triggers an immediate reconnect. Saving or refreshing a profile only needs a usable internet connection rather than Android's delayed VALIDATED flag. Account control traffic follows the profile's real outbound tag. The logo, colours, login and dashboard are unchanged. Physical-device carrier validation is still required."
+          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.2.14-ui-screenshots.zip SHA256SUMS
           gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
         if: always()
@@ -131,7 +131,7 @@ jobs:
           path: |
             Top-private-Plug-*-pilot.apk
             Top-private-Plug-rebuild-source.tar.gz
-            Top-private-Plug-0.1.17-ui-screenshots.zip
+            Top-private-Plug-0.2.14-ui-screenshots.zip
             ui-screenshots/*.png
           if-no-files-found: error
           retention-days: 1
