@@ -44,7 +44,7 @@ def main():
     manifest = ET.parse(source / 'AndroidManifest.xml')
     namespace = 'za.co.topprivateplug'
     app_id = namespace + ('.test' if args.customer_test else '')
-    version_code = '46' if args.customer_test else '18'
+    version_code = '47' if args.customer_test else '18'
     version_name = '0.2.13' if args.customer_test else '0.1.17-pilot'
     root = manifest.getroot()
     root.set('package', app_id)
