@@ -306,7 +306,7 @@ async def main():
         migrate(store)
         staging_profiles = os.environ.get('TPP_STAGING_CARRIER_PROFILES')
         if staging_profiles:
-            provision_staging_networks(store, staging_profiles, direct_mtn_telkom=True)
+            provision_staging_networks(store, staging_profiles)
     app = create_app(store, origin or 'http://127.0.0.1:8080',
                      secure_cookies=os.environ.get('TPP_LOCAL_DEV') != '1',
                      profile_notifier=None if customers_enabled else ProfileMailer.from_env(store),
