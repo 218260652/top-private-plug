@@ -71,6 +71,7 @@ final class XrayEngine {
     String diagnostic() { return warning; }
     int upstreamStatus() { return upstreamStatus; }
     void clearUpstreamStatus() { upstreamStatus=0; }
+    void clearProbeFailure() { outboundFailure.set(ProbeFailure.UNKNOWN); }
     long probe(String url) throws Exception {
         try {
             long delay = core.measureDelay(url);
