@@ -177,13 +177,31 @@ public final class TunnelService extends VpnService {
             if(saved!=null) {
                 progress("Starting saved VLESS or Trojan connection before account verification");
                 ConnectionReport.stage(ConnectionReport.Stage.SAVED_PROFILE_START);
+                XrayEngine savedEngine;
                 synchronized(xrayLock) {
                     if(!running.get()) return;
-                    xray=new XrayEngine(getFilesDir());
+                    savedEngine = new XrayEngine(getFilesDir());
+                    xray = savedEngine;
                     // No TUN inbound or Android VPN interface exists at this stage.
-                    // Only the loopback account proxy is exposed; all other targets are blocked.
-                    xray.start(TunnelConfig.control(saved.getJSONObject("config"),vault.endpoint(),controlPort,true).toString(),0);
-                    Api.throughTunnel(vault.endpoint(),controlPort,xray::clearUpstreamStatus);
+                    // The loopback proxy stays account-only. The staging probe runs inside Xray.
+                    savedEngine.start(TunnelConfig.control(saved.getJSONObject("config"),
+                        vault.endpoint(), controlPort, true, vault.staging).toString(), 0);
+                }
+                if (vault.staging) {
+                    progress("Checking HTTPS through the saved VPN profile");
+                    ConnectionReport.stage(ConnectionReport.Stage.SAVED_TUNNEL_HTTPS);
+                    try {
+                        httpsProbe(savedEngine, ControlPolicy.BOOTSTRAP_PROBE_URL);
+                        if (running.get()) ConnectionReport.stage(ConnectionReport.Stage.SAVED_TUNNEL_HTTPS_OK);
+                    } catch (Exception error) {
+                        if (!running.get() || Thread.currentThread().isInterrupted()) throw error;
+                        // The account service may be reachable even if the probe target is not.
+                        ConnectionReport.stage(ConnectionReport.Stage.SAVED_TUNNEL_HTTPS_FAILED);
+                    }
+                }
+                synchronized (xrayLock) {
+                    if (!running.get()) return;
+                    Api.throughTunnel(vault.endpoint(), controlPort, savedEngine::clearUpstreamStatus);
                 }
                 ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_VIA_TUNNEL);
             } else if (directAccount) {
@@ -199,7 +217,27 @@ public final class TunnelService extends VpnService {
             }
             JSONObject result;
             try {
-                result = vault.staging ? new CustomerApi(vault).connect(profileId, carrierCode) : api.connect(profileId, this::progress);
+                if (vault.staging) {
+                    CustomerApi customer = new CustomerApi(vault);
+                    try {
+                        result = customer.connect(profileId, carrierCode);
+                    } catch (Exception error) {
+                        XrayEngine savedEngine = xray;
+                        if (saved == null || !running.get() || !RetryPolicy.retryAccountDirectly(error)
+                                || (savedEngine != null && savedEngine.upstreamStatus() != 0)) throw error;
+                        progress("Trying the account server directly after the saved route failed");
+                        ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_DIRECT_RETRY);
+                        synchronized (xrayLock) {
+                            if (!running.get()) return;
+                            Api.clearTunnel();
+                            if (xray != null) { xray.stop(); xray = null; }
+                        }
+                        saved = null;
+                        result = customer.connect(profileId, carrierCode);
+                    }
+                } else {
+                    result = api.connect(profileId, this::progress);
+                }
             } catch (Api.HttpError error) {
                 // Customer connect returns 409 while a previous device lease is active.
                 // Use the existing lease cooldown and leave other account errors terminal.
@@ -231,7 +269,10 @@ public final class TunnelService extends VpnService {
                 XrayEngine engine = xray;
                 int proxyStatus=engine==null?0:engine.upstreamStatus();
                 boolean tryDirect = error instanceof DirectEndpointRetry;
-                if(proxyStatus!=0){error=new ProxyFailure(proxyStatus);proxyFailure=true;}
+                if (proxyStatus != 0 && !(error instanceof Api.HttpError)) {
+                    error = new ProxyFailure(proxyStatus);
+                }
+                proxyFailure |= error instanceof ProxyFailure;
                 retryFailure=tryDirect || RetryPolicy.transientFailure(error);
                 ConnectionReport.failure(null, error);
                 detail = error instanceof Api.HttpError
@@ -306,6 +347,14 @@ public final class TunnelService extends VpnService {
             // Staging control requests stay reachable even if carrier traffic fails.
             if (customer == null || startedWithProfile) Api.throughTunnel(new Vault(this).endpoint(),controlPort,engine::clearUpstreamStatus);
         }
+        if (customer != null) {
+            progress("Verifying your account on the started VPN");
+            ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_CHECK);
+            JSONObject check = customer.call("heartbeat", new JSONObject().put("lease", lease));
+            if (!check.optBoolean("ok")) throw new Exception("Account check failed.");
+            leaseDeadline = android.os.SystemClock.elapsedRealtime() + leaseMillis(check);
+            ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_CHECK_OK);
+        }
         progress("Checking HTTPS traffic through the Xray tunnel");
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
         // Use the pinned core's HTTPS connectivity target. Admin-host reachability
@@ -316,13 +365,13 @@ public final class TunnelService extends VpnService {
             } catch (Exception error) {
                 // Leave time for the first heartbeat under the current lease.
                 if (!mtnOrTelkom || !running.get() || android.os.SystemClock.elapsedRealtime() + 15000 >= leaseDeadline
-                        || engine.upstreamStatus() != 0) throw error;
+                        || error instanceof ProxyFailure || !RetryPolicy.transientFailure(error)) throw error;
                 ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_ALTERNATE);
                 latency = httpsProbe(engine, "https://www.cloudflare.com/cdn-cgi/trace");
             }
         } catch (Exception error) {
             ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_FAILED);
-            if (proxied && running.get() && directRouteAvailable) {
+            if (proxied && running.get() && directRouteAvailable && RetryPolicy.transientFailure(error)) {
                 directEndpointRetry = true;
                 ConnectionReport.stage(ConnectionReport.Stage.DIRECT_ENDPOINT_RETRY);
                 throw new DirectEndpointRetry(error);
@@ -335,12 +384,6 @@ public final class TunnelService extends VpnService {
             throw error;
         }
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_OK);
-        if (customer != null) {
-            if (!running.get()) return;
-            JSONObject check = customer.call("heartbeat", new JSONObject().put("lease", lease));
-            if (!check.optBoolean("ok")) throw new Exception("Account check failed.");
-            leaseDeadline = android.os.SystemClock.elapsedRealtime() + leaseMillis(check);
-        }
         synchronized (this) {
             if (!running.get()) return;
             connectedAt=android.os.SystemClock.elapsedRealtime();
@@ -402,7 +445,7 @@ public final class TunnelService extends VpnService {
         // Native startup holds xrayLock and stopLoop can wait on native I/O.
         // Lifecycle callbacks must never acquire that lock or call native shutdown.
         Thread previous = worker;
-        if (previous != null) {
+        if (previous != null && previous != Thread.currentThread()) {
             // Closing the HTTPS request must not block the Android main thread or TUN teardown.
             new Thread(() -> Api.cancelRequest(previous), "tpp-account-cancel").start();
         }

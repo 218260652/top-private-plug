@@ -32,6 +32,22 @@ public class RecoveryHarness {
   check(!RetryPolicy.transientFailure(new javax.net.ssl.SSLHandshakeException("untrusted")),"Retry certificate failure");
   check(!RetryPolicy.transientFailure(new Exception("expired")),"Retry unknown account failure");
   check(!RetryPolicy.transientFailure(new InterruptedException()),"Retry cancellation");
+  check(RetryPolicy.retryAccountDirectly(new Exception("wrapped",new java.net.SocketException("reset"))),"No fallback after saved-route reset");
+  check(RetryPolicy.retryAccountDirectly(new java.net.SocketTimeoutException()),"No fallback after timeout");
+  check(!RetryPolicy.retryAccountDirectly(new Api.HttpError(403)),"Fallback after account denial");
+  javax.net.ssl.SSLHandshakeException handshake = new javax.net.ssl.SSLHandshakeException("certificate");
+  handshake.initCause(new java.net.SocketException("reset"));
+  check(!RetryPolicy.retryAccountDirectly(handshake),"Fallback after TLS failure");
+
+  ConnectionReport.ProbeFailure timeout=ConnectionReport.ProbeFailure.classify("Get https://fixture.invalid: context deadline exceeded");
+  check(timeout==ConnectionReport.ProbeFailure.HTTPS_TIMEOUT,"Lost native probe timeout");
+  check(RetryPolicy.transientFailure(timeout.asException()),"Native timeout stopped recovery");
+  ConnectionReport.ProbeFailure cert=ConnectionReport.ProbeFailure.classify("tls: failed to verify certificate: x509: fixture.invalid");
+  check(cert==ConnectionReport.ProbeFailure.TLS_CERTIFICATE,"Lost native certificate failure");
+  check(!RetryPolicy.transientFailure(cert.asException()),"Retried certificate failure");
+  ConnectionReport.probeFailure(cert);
+  check(!ConnectionReport.snapshot().contains("fixture.invalid"),"Leaked native endpoint");
+
   check(RetryPolicy.transientFailure(new Exception("wrapped",new java.net.ConnectException())),"No retry wrapped socket failure");
   check(RetryPolicy.transientFailure(new ProxyFailure(429)),"No retry proxy limit");
   long prev=0;for(int i=1;i<=5;i++){long d=RetryPolicy.delayMillis(i,false,false);check(d>=prev&&d<=60000,"Unbounded delay");prev=d;}
