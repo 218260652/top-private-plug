@@ -162,8 +162,13 @@ public final class TunnelService extends VpnService {
             try(java.net.ServerSocket reservation=new java.net.ServerSocket(0,1,java.net.InetAddress.getByName("127.0.0.1"))) {
                 controlPort=reservation.getLocalPort();
             }
+            // On a validated connection, fetch the authorized profile directly.
+            // With no validated network, the saved route can still reach the account service.
+            boolean directAccount = vault.staging && NetworkState.validated(this);
             JSONObject saved;
-            if (vault.staging) {
+            if (directAccount) {
+                saved = null;
+            } else if (vault.staging) {
                 JSONObject profiles = vault.customerCache().optJSONObject("profiles");
                 JSONObject config = profiles == null ? null : profiles.optJSONObject(profileId);
                 saved = config == null ? null : new JSONObject().put("config", config);
@@ -180,6 +185,9 @@ public final class TunnelService extends VpnService {
                     Api.throughTunnel(vault.endpoint(),controlPort,xray::clearUpstreamStatus);
                 }
                 ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_VIA_TUNNEL);
+            } else if (directAccount) {
+                progress("Checking your account and fetching the current carrier profile");
+                ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_VIA_DIRECT);
             } else if (vault.staging && !"Cell C".equals(profileId)) {
                 ConnectionReport.stage(ConnectionReport.Stage.NO_SAVED_PROFILE);
                 throw new Exception("No saved profile. Use working internet and tap Refresh account once.");

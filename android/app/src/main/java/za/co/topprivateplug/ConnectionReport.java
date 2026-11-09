@@ -6,7 +6,7 @@ import java.util.Locale;
 /** In-memory diagnostics. Accept only fixed stages, routes and error categories. */
 final class ConnectionReport {
     enum Stage {
-        START, NO_SAVED_PROFILE, SAVED_PROFILE_START, ACCOUNT_VIA_TUNNEL, ACCOUNT_CHALLENGE, DEVICE_PROOF, ACCOUNT_AUTHORIZATION,
+        START, NO_SAVED_PROFILE, SAVED_PROFILE_START, ACCOUNT_VIA_TUNNEL, ACCOUNT_VIA_DIRECT, ACCOUNT_CHALLENGE, DEVICE_PROOF, ACCOUNT_AUTHORIZATION,
         VPN_INTERFACE, NATIVE_START, TUNNEL_HTTPS, TUNNEL_HTTPS_OK, TUNNEL_HTTPS_FAILED, CONNECTED,
         HEARTBEAT_RETRY, RECONNECT_SCHEDULED, RECONNECT_EXHAUSTED, CANCEL_OR_CLEANUP, CLEANUP_COMPLETE, WATCHDOG_TIMEOUT, ENGINE_LOAD_FAILED
     }
@@ -20,7 +20,7 @@ final class ConnectionReport {
     private static String route(String path) {
         for (String allowed : new String[]{"/v1/challenge", "/v1/connect", "/v1/activate", "/v1/status",
                 "/v1/profiles", "/v1/xray/heartbeat", "/v1/xray/disconnect",
-                "/v2/customer/challenge", "/v2/customer/bootstrap", "/v2/customer/connect", "/v2/customer/heartbeat", "/v2/customer/disconnect"})
+                "/v2/customer/challenge", "/v2/customer/refresh", "/v2/customer/bootstrap", "/v2/customer/connect", "/v2/customer/heartbeat", "/v2/customer/disconnect"})
             if (allowed.equals(path)) return allowed;
         return "other account request";
     }
