@@ -302,11 +302,18 @@ async def main():
             identity = db.execute('SELECT current_database()').fetchone()[0]
         if identity != 'top_private_plug_test_db':
             raise SystemExit('Customer staging requires the dedicated test database')
-        from .customer import migrate, provision_staging_networks
+        from .customer import Customers, migrate, provision_staging_networks
         migrate(store)
         staging_profiles = os.environ.get('TPP_STAGING_CARRIER_PROFILES')
         if staging_profiles:
             provision_staging_networks(store, staging_profiles)
+        if os.environ.get('TPP_STAGE_USE_CELL_C_ENDPOINT') == '1':
+            with store.db() as db:
+                routes = {row['carrier']: row['profile'] for row in Customers(store).network_rows(db)
+                          if row['enabled']}
+            if len(routes) != 3 or len(set(routes.values())) != 1:
+                raise SystemExit('Staging requires an enabled, verified Cell C WebSocket profile')
+            print('STAGING_CELL_C_ENDPOINT_ACTIVE carriers=MTN,Telkom', flush=True)
     app = create_app(store, origin or 'http://127.0.0.1:8080',
                      secure_cookies=os.environ.get('TPP_LOCAL_DEV') != '1',
                      profile_notifier=None if customers_enabled else ProfileMailer.from_env(store),
