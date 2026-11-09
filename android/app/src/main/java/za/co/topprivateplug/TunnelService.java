@@ -199,7 +199,27 @@ public final class TunnelService extends VpnService {
             }
             JSONObject result;
             try {
-                result = vault.staging ? new CustomerApi(vault).connect(profileId, carrierCode) : api.connect(profileId, this::progress);
+                if (vault.staging) {
+                    CustomerApi customer = new CustomerApi(vault);
+                    try {
+                        result = customer.connect(profileId, carrierCode);
+                    } catch (Exception error) {
+                        XrayEngine savedEngine = xray;
+                        if (saved == null || !running.get() || !RetryPolicy.retryAccountDirectly(error)
+                                || (savedEngine != null && savedEngine.upstreamStatus() != 0)) throw error;
+                        progress("Trying the account server directly after the saved route failed");
+                        ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_DIRECT_RETRY);
+                        synchronized (xrayLock) {
+                            if (!running.get()) return;
+                            Api.clearTunnel();
+                            if (xray != null) { xray.stop(); xray = null; }
+                        }
+                        saved = null;
+                        result = customer.connect(profileId, carrierCode);
+                    }
+                } else {
+                    result = api.connect(profileId, this::progress);
+                }
             } catch (Api.HttpError error) {
                 // Customer connect returns 409 while a previous device lease is active.
                 // Use the existing lease cooldown and leave other account errors terminal.

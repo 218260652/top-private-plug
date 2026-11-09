@@ -32,6 +32,13 @@ public class RecoveryHarness {
   check(!RetryPolicy.transientFailure(new javax.net.ssl.SSLHandshakeException("untrusted")),"Retry certificate failure");
   check(!RetryPolicy.transientFailure(new Exception("expired")),"Retry unknown account failure");
   check(!RetryPolicy.transientFailure(new InterruptedException()),"Retry cancellation");
+  check(RetryPolicy.retryAccountDirectly(new Exception("wrapped",new java.net.SocketException("reset"))),"No fallback after saved-route reset");
+  check(RetryPolicy.retryAccountDirectly(new java.net.SocketTimeoutException()),"No fallback after timeout");
+  check(!RetryPolicy.retryAccountDirectly(new Api.HttpError(403)),"Fallback after account denial");
+  javax.net.ssl.SSLHandshakeException handshake = new javax.net.ssl.SSLHandshakeException("certificate");
+  handshake.initCause(new java.net.SocketException("reset"));
+  check(!RetryPolicy.retryAccountDirectly(handshake),"Fallback after TLS failure");
+
   ConnectionReport.ProbeFailure timeout=ConnectionReport.ProbeFailure.classify("Get https://fixture.invalid: context deadline exceeded");
   check(timeout==ConnectionReport.ProbeFailure.HTTPS_TIMEOUT,"Lost native probe timeout");
   check(RetryPolicy.transientFailure(timeout.asException()),"Native timeout stopped recovery");

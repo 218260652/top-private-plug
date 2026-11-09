@@ -11,6 +11,21 @@ final class RetryPolicy {
         // Respect the proxy cooldown; don't create overlapping account leases.
         return Math.max(delay, hadLease ? 35000L : proxy ? 30000L : 0L);
     }
+    static boolean retryAccountDirectly(Throwable error) {
+        boolean transport = false;
+        for (int depth = 0; error != null && depth < 8; depth++, error = error.getCause()) {
+            if (error instanceof Api.HttpError || error instanceof javax.net.ssl.SSLException
+                    || error instanceof java.security.cert.CertificateException
+                    || error instanceof InterruptedException
+                    || (error instanceof java.io.InterruptedIOException
+                        && !(error instanceof java.net.SocketTimeoutException))) return false;
+            transport |= error instanceof java.net.SocketException
+                || error instanceof java.net.SocketTimeoutException
+                || error instanceof java.net.UnknownHostException || error instanceof java.io.EOFException;
+        }
+        return transport;
+    }
+
     static boolean transientFailure(Throwable error) {
         Throwable cause=error;
         for (int i=0; cause!=null && i<8; i++,cause=cause.getCause()) {
