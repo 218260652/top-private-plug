@@ -5,6 +5,18 @@ import org.json.JSONObject;
 
 /** A loopback control proxy can reach only the configured HTTPS account origin. */
 final class TunnelConfig {
+    // The backend normalizes a staged HTTP detour to this named dialer.
+    static boolean hasHttpUpstream(JSONObject config) throws Exception {
+        JSONObject stream = config.getJSONArray("outbounds").getJSONObject(0).optJSONObject("streamSettings");
+        JSONObject sockets = stream == null ? null : stream.optJSONObject("sockopt");
+        return sockets != null && "http-upstream".equals(sockets.optString("dialerProxy"));
+    }
+
+    static void useDirectEndpoint(JSONObject config) throws Exception {
+        JSONObject stream = config.getJSONArray("outbounds").getJSONObject(0).getJSONObject("streamSettings");
+        stream.getJSONObject("sockopt").remove("dialerProxy");
+    }
+
     static JSONObject control(JSONObject source, String origin, int port, boolean bootstrap) throws Exception {
         JSONObject config=new JSONObject(source.toString());
         JSONArray inputs=bootstrap?new JSONArray():config.getJSONArray("inbounds");

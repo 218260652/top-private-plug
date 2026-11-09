@@ -32,6 +32,7 @@ public final class TunnelService extends VpnService {
     private volatile String phase = "Starting VPN service";
     private volatile boolean reconnectAllowed, retryFailure, proxyFailure, retryPending, hadLease;
     private int retryAttempt;
+    private volatile boolean directEndpointRetry;
     private String activeProfile, accessToken, accountOrigin;
     private Runnable retryTask;
 
@@ -116,7 +117,7 @@ public final class TunnelService extends VpnService {
         carrierCode = vault.staging && "Cell C".equals(activeProfile) ? intent.getStringExtra("carrier_code") : null;
         intent.removeExtra("carrier_code");
         accessToken = sessionMarker(vault); accountOrigin = vault.endpoint();
-        retryAttempt = 0; reconnectAllowed = true;
+        retryAttempt = 0; directEndpointRetry = false; reconnectAllowed = true;
         beginAttempt();
         return START_NOT_STICKY;
     }
@@ -216,8 +217,9 @@ public final class TunnelService extends VpnService {
             if (running.get()) {
                 XrayEngine engine = xray;
                 int proxyStatus=engine==null?0:engine.upstreamStatus();
+                boolean tryDirect = error instanceof DirectEndpointRetry;
                 if(proxyStatus!=0){error=new ProxyFailure(proxyStatus);proxyFailure=true;}
-                retryFailure=RetryPolicy.transientFailure(error);
+                retryFailure=tryDirect || RetryPolicy.transientFailure(error);
                 ConnectionReport.failure(null, error);
                 detail = error instanceof Api.HttpError
                     ? (new Vault(this).staging ? error.getMessage() : CustomerMessage.forStatus(((Api.HttpError)error).status))
@@ -245,6 +247,16 @@ public final class TunnelService extends VpnService {
         return "OTHER_ERROR".equals(category) ? CustomerMessage.connection() : "Connection failed: " + category.replace('_', ' ').toLowerCase(java.util.Locale.ROOT) + ".";
     }
 
+    private static long httpsProbe(XrayEngine engine, String url) throws Exception {
+        long delay = engine.probe(url);
+        if (delay < 0) throw new RetryPolicy.TransportFailure("The tunnel HTTPS check failed.");
+        return delay;
+    }
+
+    private static final class DirectEndpointRetry extends Exception {
+        DirectEndpointRetry(Exception cause) { super("Retrying the same server directly.", cause); }
+    }
+
     private void runXray(Api api, JSONObject result, boolean startedWithProfile) throws Exception {
         JSONObject profile = result.getJSONObject("profile");
         String lease = result.getString("lease"); xrayLease = lease;
@@ -259,12 +271,20 @@ public final class TunnelService extends VpnService {
             .addRoute("0.0.0.0", 0).addRoute("::", 0).addDnsServer("1.1.1.1").setBlocking(false);
         builder.addDisallowedApplication(getPackageName());
         XrayEngine engine;
+        boolean mtnOrTelkom = customer != null && ("MTN".equals(activeProfile) || "Telkom".equals(activeProfile));
+        boolean directRouteAvailable = mtnOrTelkom && NetworkState.validated(this);
+        boolean proxied;
         synchronized (xrayLock) {
             if (!running.get()) return;
             tun = builder.establish();
             if (tun == null) throw new Exception("Android could not create the VPN interface.");
             engine = new XrayEngine(getFilesDir()); xray = engine;
             JSONObject config = TunnelConfig.control(result.getJSONObject("config"),new Vault(this).endpoint(),controlPort,false);
+            boolean hasUpstream = mtnOrTelkom && TunnelConfig.hasHttpUpstream(config);
+            proxied = hasUpstream && !directEndpointRetry;
+            if (hasUpstream && directEndpointRetry) TunnelConfig.useDirectEndpoint(config);
+            if (mtnOrTelkom) ConnectionReport.stage(proxied ? ConnectionReport.Stage.HTTP_UPSTREAM_ROUTE
+                : ConnectionReport.Stage.DIRECT_ENDPOINT_ROUTE);
             // Android owns the TUN. Avoid desktop name discovery (net.Interfaces).
             config.getJSONArray("inbounds").getJSONObject(0).getJSONObject("settings").put("name", "tpp0");
             progress("Starting Xray with the imported VLESS or Trojan profile");
@@ -278,10 +298,22 @@ public final class TunnelService extends VpnService {
         // Use the pinned core's HTTPS connectivity target. Admin-host reachability
         // is checked independently by authenticated API calls and heartbeats.
         try {
-            latency = engine.probe("");
-            if (latency < 0) throw new RetryPolicy.TransportFailure("The tunnel HTTPS check failed.");
+            try {
+                latency = httpsProbe(engine, "");
+            } catch (Exception error) {
+                // Leave time for the first heartbeat under the current lease.
+                if (!mtnOrTelkom || !running.get() || android.os.SystemClock.elapsedRealtime() + 15000 >= leaseDeadline
+                        || engine.upstreamStatus() != 0) throw error;
+                ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_ALTERNATE);
+                latency = httpsProbe(engine, "https://www.cloudflare.com/cdn-cgi/trace");
+            }
         } catch (Exception error) {
             ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_FAILED);
+            if (proxied && running.get() && directRouteAvailable) {
+                directEndpointRetry = true;
+                ConnectionReport.stage(ConnectionReport.Stage.DIRECT_ENDPOINT_RETRY);
+                throw new DirectEndpointRetry(error);
+            }
             throw error;
         }
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_OK);
