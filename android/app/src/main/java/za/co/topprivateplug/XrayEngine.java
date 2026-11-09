@@ -7,6 +7,8 @@ import libv2ray.Libv2ray;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicReference;
+import static za.co.topprivateplug.ConnectionReport.ProbeFailure;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -15,6 +17,7 @@ final class XrayEngine {
     private final CoreController core;
     private volatile String warning = "";
     private volatile int upstreamStatus;
+    private final AtomicReference<ProbeFailure> outboundFailure = new AtomicReference<>(ProbeFailure.UNKNOWN);
     private final List<String> secrets = new ArrayList<>();
     XrayEngine(File directory) {
         Libv2ray.initCoreEnv(directory.getAbsolutePath(), "");
@@ -25,6 +28,10 @@ final class XrayEngine {
                 if (code == 100 && text != null) {
                     int status=ProxyFailure.status(text);
                     if(status!=0 && upstreamStatus!=429)upstreamStatus=status;
+                    ProbeFailure failure = ProbeFailure.classify(text);
+                    if (failure.ordinal() < ProbeFailure.HTTPS_TIMEOUT.ordinal()) {
+                        outboundFailure.getAndUpdate(previous -> failure.ordinal() < previous.ordinal() ? failure : previous);
+                    }
                     String lower = text.toLowerCase(Locale.ROOT);
                     if (lower.contains("failed") || lower.contains("error") || lower.contains("eof") || lower.contains("rejected")) {
                         warning = "Connection could not be completed.";
@@ -64,7 +71,25 @@ final class XrayEngine {
     String diagnostic() { return warning; }
     int upstreamStatus() { return upstreamStatus; }
     void clearUpstreamStatus() { upstreamStatus=0; }
-    long probe(String url) throws Exception { return core.measureDelay(url); }
+    long probe(String url) throws Exception {
+        try {
+            long delay = core.measureDelay(url);
+            if (delay >= 0) return delay;
+        } catch (Exception error) {
+            ProbeFailure failure = ProbeFailure.classify(error.getMessage());
+            throw probeFailure(failure);
+        }
+        throw probeFailure(ProbeFailure.UNKNOWN);
+    }
+
+    private Exception probeFailure(ProbeFailure failure) {
+        int status = upstreamStatus;
+        if (status != 0) return new ProxyFailure(status);
+        ProbeFailure outbound = outboundFailure.get();
+        if (outbound.ordinal() < failure.ordinal()) failure = outbound;
+        ConnectionReport.probeFailure(failure);
+        return failure.asException();
+    }
     String traffic() { return core.queryAllOutboundTrafficStats(); }
     boolean running() { return core.getIsRunning(); }
     void stop() { try { core.stopLoop(); } catch (Exception ignored) {} }
