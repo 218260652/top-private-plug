@@ -262,7 +262,22 @@ public final class TunnelService extends VpnService {
                 if (!mtnOrTelkom || !running.get() || android.os.SystemClock.elapsedRealtime() + 15000 >= leaseDeadline
                         || error instanceof ProxyFailure || !RetryPolicy.transientFailure(error)) throw error;
                 ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_ALTERNATE);
-                latency = httpsProbe(engine, "https://www.cloudflare.com/cdn-cgi/trace");
+                try {
+                    latency = httpsProbe(engine, "https://www.cloudflare.com/cdn-cgi/trace");
+                } catch (java.net.UnknownHostException dnsError) {
+                    if (running.get()) {
+                        ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_IP_HTTPS);
+                        engine.clearProbeFailure();
+                        try {
+                            httpsProbe(engine, "https://1.1.1.1/cdn-cgi/trace");
+                            if (running.get()) ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_IP_HTTPS_OK);
+                        } catch (Exception probeError) {
+                            if (running.get()) ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_IP_HTTPS_FAILED);
+                        }
+                    }
+                    // A successful IP probe alone does not verify hostname-based traffic.
+                    throw dnsError;
+                }
             }
         } catch (Exception error) {
             ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_FAILED);
