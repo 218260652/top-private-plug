@@ -184,7 +184,12 @@ public final class TunnelService extends VpnService {
             if (running.get()) {
                 XrayEngine engine = xray;
                 int proxyStatus=engine==null?0:engine.upstreamStatus();
-                if(proxyStatus!=0){error=new ProxyFailure(proxyStatus);proxyFailure=true;}
+                if (error instanceof ProxyFailure) {
+                    proxyFailure = true;
+                } else if (proxyStatus != 0 && !(error instanceof Api.HttpError)) {
+                    error = new ProxyFailure(proxyStatus);
+                    proxyFailure = true;
+                }
                 retryFailure=RetryPolicy.transientFailure(error);
                 ConnectionReport.failure(null, error);
                 detail = error instanceof Api.HttpError ? CustomerMessage.forStatus(((Api.HttpError)error).status) : CustomerMessage.connection();
@@ -225,7 +230,15 @@ public final class TunnelService extends VpnService {
         // Use the pinned core's HTTPS connectivity target. Admin-host reachability
         // is checked independently by authenticated API calls and heartbeats.
         latency = engine.probe("");
-        if (latency < 0) throw new RetryPolicy.TransportFailure("The tunnel HTTPS check failed.");
+        if (latency < 0) {
+            int status = engine.upstreamStatus();
+            if (status != 0) {
+                ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_PROXY_REJECTED);
+                throw new ProxyFailure(status);
+            }
+            ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_PROBE_FAILED);
+            throw new RetryPolicy.TransportFailure("The tunnel HTTPS check failed.");
+        }
         synchronized (this) {
             if (!running.get()) return;
             connectedAt=android.os.SystemClock.elapsedRealtime();
