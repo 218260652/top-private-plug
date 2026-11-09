@@ -3,6 +3,8 @@ name: Customer staging checks and test APK
 on:
   push:
     branches: [develop/customer-auth-staging, develop/cell-c-code]
+  pull_request:
+    branches: [develop/cell-c-code]
   workflow_dispatch:
 
 permissions:
@@ -14,7 +16,12 @@ concurrency:
 
 jobs:
   test-and-build:
-    if: (github.ref == 'refs/heads/develop/customer-auth-staging' || github.ref == 'refs/heads/develop/cell-c-code') && github.repository == '218260652/top-private-plug'
+    if: >-
+      github.repository == '218260652/top-private-plug' &&
+      (github.ref == 'refs/heads/develop/customer-auth-staging' ||
+       github.ref == 'refs/heads/develop/cell-c-code' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     services:
@@ -32,6 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
@@ -78,10 +86,13 @@ jobs:
           key: tpp-customer-test-signing-v1
       - name: Build and verify signed test APK
         run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            test -f .local-signing/customer-test/debug.keystore
+          fi
           python tools/build_android.py --customer-test
           apk=Top-Private-Plug-0.2.13.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$apk" > APK-METADATA.txt
-          grep -F "package: name='za.co.topprivateplug.test' versionCode='39' versionName='0.2.13'" APK-METADATA.txt
+          grep -F "package: name='za.co.topprivateplug.test' versionCode='46' versionName='0.2.13'" APK-METADATA.txt
           grep -F "application-label:'Top Private Plug'" APK-METADATA.txt
           git rev-parse HEAD >> APK-METADATA.txt
           sha256sum "$apk" | tee SHA256SUMS
@@ -98,7 +109,7 @@ jobs:
           retention-days: 30
 
       - name: Publish private staging download if Actions storage is unavailable
-        if: steps.artifact.outcome == 'failure'
+        if: steps.artifact.outcome == 'failure' && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
