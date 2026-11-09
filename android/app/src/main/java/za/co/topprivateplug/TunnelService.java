@@ -231,7 +231,10 @@ public final class TunnelService extends VpnService {
                 XrayEngine engine = xray;
                 int proxyStatus=engine==null?0:engine.upstreamStatus();
                 boolean tryDirect = error instanceof DirectEndpointRetry;
-                if(proxyStatus!=0){error=new ProxyFailure(proxyStatus);proxyFailure=true;}
+                if (proxyStatus != 0 && !(error instanceof Api.HttpError)) {
+                    error = new ProxyFailure(proxyStatus);
+                }
+                proxyFailure |= error instanceof ProxyFailure;
                 retryFailure=tryDirect || RetryPolicy.transientFailure(error);
                 ConnectionReport.failure(null, error);
                 detail = error instanceof Api.HttpError
@@ -316,13 +319,13 @@ public final class TunnelService extends VpnService {
             } catch (Exception error) {
                 // Leave time for the first heartbeat under the current lease.
                 if (!mtnOrTelkom || !running.get() || android.os.SystemClock.elapsedRealtime() + 15000 >= leaseDeadline
-                        || engine.upstreamStatus() != 0) throw error;
+                        || error instanceof ProxyFailure || !RetryPolicy.transientFailure(error)) throw error;
                 ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_ALTERNATE);
                 latency = httpsProbe(engine, "https://www.cloudflare.com/cdn-cgi/trace");
             }
         } catch (Exception error) {
             ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_FAILED);
-            if (proxied && running.get() && directRouteAvailable) {
+            if (proxied && running.get() && directRouteAvailable && RetryPolicy.transientFailure(error)) {
                 directEndpointRetry = true;
                 ConnectionReport.stage(ConnectionReport.Stage.DIRECT_ENDPOINT_RETRY);
                 throw new DirectEndpointRetry(error);
@@ -402,7 +405,7 @@ public final class TunnelService extends VpnService {
         // Native startup holds xrayLock and stopLoop can wait on native I/O.
         // Lifecycle callbacks must never acquire that lock or call native shutdown.
         Thread previous = worker;
-        if (previous != null) {
+        if (previous != null && previous != Thread.currentThread()) {
             // Closing the HTTPS request must not block the Android main thread or TUN teardown.
             new Thread(() -> Api.cancelRequest(previous), "tpp-account-cancel").start();
         }
