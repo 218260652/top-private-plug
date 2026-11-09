@@ -184,6 +184,30 @@ class CustomerStoreCases:
                 self.assertNotIn('http', [outbound['protocol'] for outbound in config['outbounds']])
             self.assertEqual(rows['Cell C']['version'], 1)
 
+    def test_staging_cell_c_endpoint_override(self):
+        cell_c = vless()
+        cell_c['outbounds'][0]['streamSettings'].update(
+            network='ws', wsSettings={'path':'/fixture', 'headers':{'Host':'vpn.example.com'}})
+        provision_staging_networks(self.store, json.dumps({'MTN':vless(), 'Telkom':vless(), 'Cell C':cell_c}))
+        session = self.login()
+        with patch.dict(os.environ, {'TPP_CUSTOMER_STAGING':'1', 'TPP_STAGE_USE_CELL_C_ENDPOINT':'1',
+                                     'TPP_CELL_C_CODE':'fixture-code'}):
+            profiles = self.call('bootstrap', session, self.signed('connect'))['profiles']
+            self.assertEqual(set(profiles), {'MTN', 'Telkom'})
+            for carrier in ('MTN', 'Telkom', 'Cell C'):
+                data = {**self.signed('connect'), 'carrier':carrier}
+                if carrier == 'Cell C':
+                    self.assert_fault(403, lambda: self.call('connect', session, data))
+                    data = {**self.signed('connect'), 'carrier':carrier, 'carrier_code':'fixture-code'}
+                result = self.call('connect', session, data)
+                self.assertEqual(result['config'], profiles['MTN'])
+                self.assertEqual(result['config'], profiles['Telkom'])
+                self.assertEqual(result['config']['outbounds'][0]['streamSettings']['network'], 'ws')
+                self.assertTrue(self.call('heartbeat', session, {'lease':result['lease']})['ok'])
+                self.call('disconnect', session, {'lease':result['lease']})
+        result = self.call('connect', session, {**self.signed('connect'), 'carrier':'MTN'})
+        self.assertEqual(result['config']['outbounds'][0]['streamSettings']['network'], 'tcp')
+
     def test_login_bootstrap_excludes_cell_c_and_does_not_allocate_leases(self):
         provision_staging_networks(self.store, json.dumps({carrier:vless() for carrier in ('MTN','Telkom','Cell C')}))
         session = self.login()

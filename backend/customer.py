@@ -308,6 +308,16 @@ class Customers:
             if not is_vless(json.loads(item.pop('config'))) or (item['carrier'] == CELL_C and not os.environ.get('TPP_CELL_C_CODE')):
                 item['enabled'] = item['tested'] = 0
             profiles.append(item)
+        if os.environ.get('TPP_CUSTOMER_STAGING') == '1' and os.environ.get('TPP_STAGE_USE_CELL_C_ENDPOINT') == '1':
+            cell_c = next((profile for profile in profiles if profile['carrier'] == CELL_C
+                           and profile['enabled'] and not profile['insecure']), None)
+            if cell_c:
+                stream = self.connection_config(db, cell_c)['outbounds'][0]['streamSettings']
+                if (stream['network'] == 'ws' and stream['security'] == 'tls'
+                        and not stream.get('sockopt', {}).get('dialerProxy')):
+                    # Preserve stored assignments so disabling the staging override restores them.
+                    return [dict(cell_c, carrier=carrier, tested=0) if carrier != CELL_C else cell_c
+                            for carrier in NETWORKS]
         return profiles
 
     def customer(self, op, token, data):
