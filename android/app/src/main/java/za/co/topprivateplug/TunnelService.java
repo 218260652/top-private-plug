@@ -177,13 +177,30 @@ public final class TunnelService extends VpnService {
             if(saved!=null) {
                 progress("Starting saved VLESS or Trojan connection before account verification");
                 ConnectionReport.stage(ConnectionReport.Stage.SAVED_PROFILE_START);
+                XrayEngine savedEngine;
                 synchronized(xrayLock) {
                     if(!running.get()) return;
-                    xray=new XrayEngine(getFilesDir());
+                    savedEngine = new XrayEngine(getFilesDir());
+                    xray = savedEngine;
                     // No TUN inbound or Android VPN interface exists at this stage.
-                    // Only the loopback account proxy is exposed; all other targets are blocked.
-                    xray.start(TunnelConfig.control(saved.getJSONObject("config"),vault.endpoint(),controlPort,true).toString(),0);
-                    Api.throughTunnel(vault.endpoint(),controlPort,xray::clearUpstreamStatus);
+                    // The loopback proxy stays account-only. The staging probe runs inside Xray.
+                    savedEngine.start(TunnelConfig.control(saved.getJSONObject("config"),
+                        vault.endpoint(), controlPort, true, vault.staging).toString(), 0);
+                }
+                if (vault.staging) {
+                    progress("Checking HTTPS through the saved VPN profile");
+                    ConnectionReport.stage(ConnectionReport.Stage.SAVED_TUNNEL_HTTPS);
+                    try {
+                        httpsProbe(savedEngine, ControlPolicy.BOOTSTRAP_PROBE_URL);
+                    } catch (Exception error) {
+                        if (running.get()) ConnectionReport.stage(ConnectionReport.Stage.SAVED_TUNNEL_HTTPS_FAILED);
+                        throw error;
+                    }
+                }
+                synchronized (xrayLock) {
+                    if (!running.get()) return;
+                    if (vault.staging) ConnectionReport.stage(ConnectionReport.Stage.SAVED_TUNNEL_HTTPS_OK);
+                    Api.throughTunnel(vault.endpoint(), controlPort, savedEngine::clearUpstreamStatus);
                 }
                 ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_VIA_TUNNEL);
             } else if (directAccount) {
