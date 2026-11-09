@@ -166,6 +166,28 @@ def provision_staging_networks(store, raw, direct_mtn_telkom=False):
             event(db, store.now(), 'staging-setup', carrier, 'network_configured')
 
 
+    # Keep startup diagnostics limited to transport metadata, never credentials.
+    with store.db() as db:
+        for row in db.execute('''SELECT n.carrier,p.server,p.port,p.sni,x.config FROM customer_networks n
+                JOIN profiles p ON p.id=n.profile JOIN xray_profiles x ON x.profile=p.id'''):
+            current = json.loads(row['config'])
+            stream = current['outbounds'][0]['streamSettings']
+            upstream = next((o for o in current['outbounds'] if o.get('protocol') == 'http'), {})
+            settings = upstream.get('settings', {})
+            headers = settings.get('headers', {})
+            print('CARRIER_TRANSPORT ' + json.dumps({
+                'carrier': row['carrier'], 'server': row['server'], 'port': row['port'],
+                'sni': row['sni'], 'network': stream.get('network'),
+                'dialer': stream.get('sockopt', {}).get('dialerProxy'),
+                'tls_verified': not stream.get('tlsSettings', {}).get('allowInsecure', False),
+                'proxy_address': next(iter(settings.get('servers', [])), {}).get('address'),
+                'proxy_port': next(iter(settings.get('servers', [])), {}).get('port'),
+                'header_names': sorted(headers),
+                'user_agent': headers.get('User-Agent'),
+                'host_header': headers.get('Host')
+            }), flush=True)
+
+
 class Customers:
     def __init__(self, store):
         self.store = store
