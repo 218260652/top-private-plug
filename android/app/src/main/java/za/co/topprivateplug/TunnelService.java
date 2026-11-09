@@ -219,6 +219,18 @@ public final class TunnelService extends VpnService {
 
     private void runXray(JSONObject source, JSONObject profile, Api api) throws Exception {
         if (!running.get()) return;
+        JSONObject config = api == null ? new JSONObject(source.toString())
+            : TunnelConfig.control(source, new Vault(this).endpoint(), controlPort, false);
+        boolean mtnOrTelkom = api == null && ("MTN".equals(activeProfile) || "Telkom".equals(activeProfile));
+        boolean directRouteAvailable = mtnOrTelkom && NetworkState.validated(this);
+        boolean hasUpstream = mtnOrTelkom && TunnelConfig.hasHttpUpstream(config);
+        boolean proxied = hasUpstream && !directEndpointRetry;
+        if (hasUpstream && directEndpointRetry) TunnelConfig.useDirectEndpoint(config);
+        if (mtnOrTelkom) {
+            ConnectionReport.stage(proxied ? ConnectionReport.Stage.HTTP_UPSTREAM_ROUTE
+                : ConnectionReport.Stage.DIRECT_ENDPOINT_ROUTE);
+            if (!proxied) TunnelConfig.resolveDirectEndpoint(config, this);
+        }
         progress("Creating the Android VPN interface");
         ConnectionReport.stage(ConnectionReport.Stage.VPN_INTERFACE);
         // Native sockets bypass the TUN; API calls explicitly use its loopback control proxy.
@@ -227,21 +239,11 @@ public final class TunnelService extends VpnService {
             .addRoute("0.0.0.0", 0).addRoute("::", 0).addDnsServer("1.1.1.1").setBlocking(false);
         builder.addDisallowedApplication(getPackageName());
         XrayEngine engine;
-        boolean mtnOrTelkom = api == null && ("MTN".equals(activeProfile) || "Telkom".equals(activeProfile));
-        boolean directRouteAvailable = mtnOrTelkom && NetworkState.validated(this);
-        boolean proxied;
         synchronized (xrayLock) {
             if (!running.get()) return;
             tun = builder.establish();
             if (tun == null) throw new Exception("Android could not create the VPN interface.");
             engine = new XrayEngine(getFilesDir()); xray = engine;
-            JSONObject config = api == null ? new JSONObject(source.toString())
-                : TunnelConfig.control(source, new Vault(this).endpoint(), controlPort, false);
-            boolean hasUpstream = mtnOrTelkom && TunnelConfig.hasHttpUpstream(config);
-            proxied = hasUpstream && !directEndpointRetry;
-            if (hasUpstream && directEndpointRetry) TunnelConfig.useDirectEndpoint(config);
-            if (mtnOrTelkom) ConnectionReport.stage(proxied ? ConnectionReport.Stage.HTTP_UPSTREAM_ROUTE
-                : ConnectionReport.Stage.DIRECT_ENDPOINT_ROUTE);
             // Android owns the TUN. Avoid desktop name discovery (net.Interfaces).
             config.getJSONArray("inbounds").getJSONObject(0).getJSONObject("settings").put("name", "tpp0");
             progress("Starting Xray with the imported VLESS or Trojan profile");
