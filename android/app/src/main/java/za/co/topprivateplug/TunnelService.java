@@ -192,14 +192,15 @@ public final class TunnelService extends VpnService {
                     ConnectionReport.stage(ConnectionReport.Stage.SAVED_TUNNEL_HTTPS);
                     try {
                         httpsProbe(savedEngine, ControlPolicy.BOOTSTRAP_PROBE_URL);
+                        if (running.get()) ConnectionReport.stage(ConnectionReport.Stage.SAVED_TUNNEL_HTTPS_OK);
                     } catch (Exception error) {
-                        if (running.get()) ConnectionReport.stage(ConnectionReport.Stage.SAVED_TUNNEL_HTTPS_FAILED);
-                        throw error;
+                        if (!running.get() || Thread.currentThread().isInterrupted()) throw error;
+                        // The account service may be reachable even if the probe target is not.
+                        ConnectionReport.stage(ConnectionReport.Stage.SAVED_TUNNEL_HTTPS_FAILED);
                     }
                 }
                 synchronized (xrayLock) {
                     if (!running.get()) return;
-                    if (vault.staging) ConnectionReport.stage(ConnectionReport.Stage.SAVED_TUNNEL_HTTPS_OK);
                     Api.throughTunnel(vault.endpoint(), controlPort, savedEngine::clearUpstreamStatus);
                 }
                 ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_VIA_TUNNEL);

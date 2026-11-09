@@ -92,7 +92,7 @@ jobs:
           python tools/build_android.py --customer-test
           apk=Top-Private-Plug-0.2.13.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$apk" > APK-METADATA.txt
-          grep -F "package: name='za.co.topprivateplug.test' versionCode='43' versionName='0.2.13'" APK-METADATA.txt
+          grep -F "package: name='za.co.topprivateplug.test' versionCode='44' versionName='0.2.13'" APK-METADATA.txt
           grep -F "application-label:'Top Private Plug'" APK-METADATA.txt
           git rev-parse HEAD >> APK-METADATA.txt
           sha256sum "$apk" | tee SHA256SUMS
