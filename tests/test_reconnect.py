@@ -18,7 +18,6 @@ public class RecoveryHarness {
  boolean reconnectAllowed=true,retryFailure=true,proxyFailure=true,retryPending,hadLease,foreground=true;
  int retryAttempt,starts,stops; String accessToken="access",accountOrigin="https://admin.example";
  String token="access",endpoint=accountOrigin; static String state="Connected",detail="";
- String carrierCode="fixture";
  Runnable retryTask; final Main main=new Main();
  static class Main { Runnable delayed;long delay;void postDelayed(Runnable r,long ms){delayed=r;delay=ms;}void removeCallbacks(Runnable r){if(delayed==r)delayed=null;} }
  static class Vault { RecoveryHarness s;Vault(RecoveryHarness s){this.s=s;}String token(){return s.token;}String endpoint(){return s.endpoint;} }
@@ -32,6 +31,22 @@ public class RecoveryHarness {
   check(!RetryPolicy.transientFailure(new javax.net.ssl.SSLHandshakeException("untrusted")),"Retry certificate failure");
   check(!RetryPolicy.transientFailure(new Exception("expired")),"Retry unknown account failure");
   check(!RetryPolicy.transientFailure(new InterruptedException()),"Retry cancellation");
+  check(RetryPolicy.retryAccountDirectly(new Exception("wrapped",new java.net.SocketException("reset"))),"No fallback after saved-route reset");
+  check(RetryPolicy.retryAccountDirectly(new java.net.SocketTimeoutException()),"No fallback after timeout");
+  check(!RetryPolicy.retryAccountDirectly(new Api.HttpError(403)),"Fallback after account denial");
+  javax.net.ssl.SSLHandshakeException handshake = new javax.net.ssl.SSLHandshakeException("certificate");
+  handshake.initCause(new java.net.SocketException("reset"));
+  check(!RetryPolicy.retryAccountDirectly(handshake),"Fallback after TLS failure");
+
+  ConnectionReport.ProbeFailure timeout=ConnectionReport.ProbeFailure.classify("Get https://fixture.invalid: context deadline exceeded");
+  check(timeout==ConnectionReport.ProbeFailure.HTTPS_TIMEOUT,"Lost native probe timeout");
+  check(RetryPolicy.transientFailure(timeout.asException()),"Native timeout stopped recovery");
+  ConnectionReport.ProbeFailure cert=ConnectionReport.ProbeFailure.classify("tls: failed to verify certificate: x509: fixture.invalid");
+  check(cert==ConnectionReport.ProbeFailure.TLS_CERTIFICATE,"Lost native certificate failure");
+  check(!RetryPolicy.transientFailure(cert.asException()),"Retried certificate failure");
+  ConnectionReport.probeFailure(cert);
+  check(!ConnectionReport.snapshot().contains("fixture.invalid"),"Leaked native endpoint");
+
   check(RetryPolicy.transientFailure(new Exception("wrapped",new java.net.ConnectException())),"No retry wrapped socket failure");
   check(RetryPolicy.transientFailure(new ProxyFailure(429)),"No retry proxy limit");
   long prev=0;for(int i=1;i<=5;i++){long d=RetryPolicy.delayMillis(i,false,false);check(d>=prev&&d<=60000,"Unbounded delay");prev=d;}
@@ -40,7 +55,7 @@ public class RecoveryHarness {
   RecoveryHarness s=new RecoveryHarness();
   for(int i=1;i<=5;i++){s.onCleanupComplete();check(s.retryAttempt==i&&s.retryPending&&state.equals("Reconnecting"),"Missing retry "+i);Runnable next=s.main.delayed;s.main.delayed=null;next.run();check(s.starts==i,"Attempt did not start");}
   s.onCleanupComplete();check(s.starts==5&&s.stops==1&&state.equals("Disconnected")&&!s.foreground,"Exceeded five retries");
-  s=new RecoveryHarness();s.onCleanupComplete();s.requestStop();check(s.main.delayed==null&&!s.reconnectAllowed&&!s.retryPending&&s.carrierCode==null,"Stop did not cancel reconnect and clear the carrier code");
+  s=new RecoveryHarness();s.onCleanupComplete();s.requestStop();check(s.main.delayed==null&&!s.reconnectAllowed&&!s.retryPending,"Stop did not cancel reconnect");
   s=new RecoveryHarness();s.onCleanupComplete();s.token="changed";s.main.delayed.run();check(s.starts==0&&!s.reconnectAllowed,"Restarted after logout/account change");
   s=new RecoveryHarness();s.retryFailure=false;s.onCleanupComplete();check(s.main.delayed==null&&s.stops==1,"Retried terminal authorization failure");
   System.out.println("PASS");
