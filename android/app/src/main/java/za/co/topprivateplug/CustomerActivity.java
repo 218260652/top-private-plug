@@ -500,7 +500,7 @@ public final class CustomerActivity extends Activity {
         boolean active = "Connected".equals(state) || TunnelService.TUNNEL_RUNNING.equals(state);
         long elapsed = active ? Math.max(0, SystemClock.elapsedRealtime() - TunnelService.connectedAt) / 1000 : 0;
         tunnel.setText(state + " · " + String.format(Locale.ROOT, "%02d:%02d:%02d", elapsed / 3600, (elapsed / 60) % 60, elapsed % 60)
-            + "\n" + TunnelService.detail + "\nSelected: " + carrier);
+            + (active || TunnelService.detail.isEmpty() ? "" : "\n" + TunnelService.detail));
         up.setText(android.text.format.Formatter.formatShortFileSize(this, TunnelService.uploaded));
         down.setText(android.text.format.Formatter.formatShortFileSize(this, TunnelService.downloaded));
         ping.setText(TunnelService.latency >= 0 ? TunnelService.latency + " ms" : "—");
