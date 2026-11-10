@@ -1,3 +1,4 @@
+import hashlib
 import os
 import json
 import tempfile
@@ -307,3 +308,32 @@ class CustomerAdminApiTests(AioHTTPTestCase):
         response = await self.client.get('/admin/api/customers/users',cookies=cookie)
         self.assertEqual(response.status,200)
         self.assertNotIn('password',(await response.json())['users'][0])
+
+    async def test_app_update_download_requires_active_account_and_matching_hash(self):
+        service = Customers(self.store)
+        service.admin('create', 'owner', {'username': 'updater', 'password': INITIAL, 'days': 1})
+        key, public = device()
+        session = service.login({**proof(self.store, key, public, 'customer-login'),
+                                 'public_key': public, 'username': 'updater', 'password': INITIAL}, 'test')
+        headers = {'Authorization': 'Bearer ' + session['access_token']}
+        manifest = '/v2/customer/app-update'
+        download = '/v2/customer/app-update-apk'
+        payload = b'test-update' * 1000
+        sha = hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'TPP_CUSTOMER_UPDATE_DIR': directory}):
+            folder = Path(directory)
+            (folder / (sha + '.apk')).write_bytes(payload)
+            (folder / 'latest.json').write_text(json.dumps({'version_code': 54, 'version_name': '0.2.14',
+                                                           'sha256': sha, 'size': len(payload)}))
+            response = await self.client.get(manifest)
+            self.assertEqual(response.status, 401)
+            response = await self.client.get(download, params={'sha256': sha})
+            self.assertEqual(response.status, 401)
+            response = await self.client.get(manifest, headers=headers)
+            self.assertEqual(response.status, 200)
+            self.assertEqual((await response.json())['sha256'], sha)
+            response = await self.client.get(download, headers=headers, params={'sha256': '0' * 64})
+            self.assertEqual(response.status, 409)
+            response = await self.client.get(download, headers=headers, params={'sha256': sha})
+            self.assertEqual(response.status, 200)
+            self.assertEqual(await response.read(), payload)
