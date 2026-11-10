@@ -17,11 +17,6 @@ final class TunnelConfig {
         return sockets != null && "http-upstream".equals(sockets.optString("dialerProxy"));
     }
 
-    static void useDirectEndpoint(JSONObject config) throws Exception {
-        JSONObject stream = config.getJSONArray("outbounds").getJSONObject(0).getJSONObject("streamSettings");
-        stream.getJSONObject("sockopt").remove("dialerProxy");
-    }
-
     static void resolveDirectEndpoint(JSONObject config, Context context) throws Exception {
         JSONObject outbound = config.getJSONArray("outbounds").getJSONObject(0);
         JSONObject stream = outbound.getJSONObject("streamSettings");
