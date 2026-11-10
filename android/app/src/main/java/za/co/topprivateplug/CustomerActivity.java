@@ -198,6 +198,10 @@ public final class CustomerActivity extends Activity {
 
     private void accountMenu(View anchor) {
         PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add("App updates").setOnMenuItemClickListener(item -> {
+            if (!busy) checkAppUpdate();
+            return true;
+        });
         menu.getMenu().add("Refresh account").setOnMenuItemClickListener(item -> {
             if (!busy) submit(this::fetchAccount, this::render);
             return true;
@@ -212,6 +216,26 @@ public final class CustomerActivity extends Activity {
             return true;
         });
         menu.show();
+    }
+
+    private void checkAppUpdate() {
+        CustomerUpdate update = new CustomerUpdate(this, vault, api);
+        JSONObject[] release = new JSONObject[1];
+        submit(() -> release[0] = update.check(), () -> {
+            if (release[0] == null) {
+                message.setText("You're up to date.");
+                return;
+            }
+            new AlertDialog.Builder(this).setTitle("App update available")
+                .setMessage("Version " + release[0].optString("version_name"))
+                .setNegativeButton("Later", null)
+                .setPositiveButton("Update", (dialog, which) -> {
+                    if (!busy) submit(() -> update.download(release[0]), () -> {
+                        try { update.install(); }
+                        catch (Exception error) { message.setText(error.getMessage()); }
+                    });
+                }).show();
+        });
     }
 
     private void showConnectionReport() {
