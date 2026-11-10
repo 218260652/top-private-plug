@@ -217,6 +217,9 @@ public final class TunnelService extends VpnService {
         JSONObject config = api == null ? new JSONObject(source.toString())
             : TunnelConfig.control(source, new Vault(this).endpoint(), controlPort, false);
         boolean staging = api == null;
+        boolean unverifiedTls = staging && Vault.usesBundledProfile(activeProfile)
+            && config.getJSONArray("outbounds").getJSONObject(0).getJSONObject("streamSettings")
+                .getJSONObject("tlsSettings").optBoolean("allowInsecure");
         if (staging) {
             TunnelConfig.useCloudflareHttpsDns(config);
             boolean proxied = TunnelConfig.hasHttpUpstream(config);
@@ -263,7 +266,8 @@ public final class TunnelService extends VpnService {
             if (staging) {
                 state = TUNNEL_RUNNING;
                 ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_STARTED_UNVERIFIED);
-                detail = "VPN interface is active. Internet access has not been verified.";
+                detail = unverifiedTls ? "Test profile: VLESS server certificate verification is disabled."
+                    : "VPN interface is active. Internet access has not been verified.";
             } else {
                 state = "Connected";
                 ConnectionReport.stage(ConnectionReport.Stage.CONNECTED);
@@ -271,7 +275,7 @@ public final class TunnelService extends VpnService {
             }
             showNotification(detail);
         }
-        if (staging) verifyStagingTraffic(engine);
+        if (staging) verifyStagingTraffic(engine, unverifiedTls);
         TrafficTotals totals = new TrafficTotals();
         long nextHeartbeat = 0;
         while (running.get() && engine.running()) {
@@ -303,7 +307,7 @@ public final class TunnelService extends VpnService {
         }
         if (running.get()) throw new RetryPolicy.TransportFailure("The Xray engine stopped unexpectedly.");
     }
-    private void verifyStagingTraffic(XrayEngine engine) {
+    private void verifyStagingTraffic(XrayEngine engine, boolean unverifiedTls) {
         if (!running.get()) return;
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
         try {
@@ -312,7 +316,8 @@ public final class TunnelService extends VpnService {
                 if (!running.get()) return;
                 latency = delay;
                 state = "Connected";
-                detail = "Internet traffic verified through the VPN.";
+                detail = unverifiedTls ? "Traffic verified. Test profile skips VLESS server certificate verification."
+                    : "Internet traffic verified through the VPN.";
                 ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_OK);
                 ConnectionReport.stage(ConnectionReport.Stage.CONNECTED);
                 showNotification(detail);
@@ -335,7 +340,7 @@ public final class TunnelService extends VpnService {
             }
             synchronized (this) {
                 if (!running.get()) return;
-                detail = result;
+                detail = unverifiedTls ? result + " Test profile skips VLESS server certificate verification." : result;
                 showNotification(detail);
             }
         }
