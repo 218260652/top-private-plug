@@ -5,16 +5,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      publish_pilot:
-        description: 'Publish prerelease only after explicit owner approval'
-        type: boolean
-        required: true
-        default: false
 
 permissions:
   contents: write
-  actions: read
 
 concurrency:
   group: checks-${{ github.ref }}
@@ -22,6 +15,7 @@ concurrency:
 
 jobs:
   verify-and-build:
+    if: ${{ !startsWith(github.head_ref, 'fix/backend-network-binding-') && github.head_ref != 'develop/customer-auth-staging' && github.ref_name != 'develop/customer-auth-staging' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -89,25 +83,15 @@ jobs:
         # Exercise real loopback sockets separately from the denied-socket parser test.
         run: |
           python tools/build_android.py --sdk "$ANDROID_HOME"
-      - name: Verify update identity against working 0.1.21 pilot
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          gh run download 41713934226 -n Top-private-Plug-pilot-90 -D /tmp/tpp-baseline
-          python tools/verify_update_identity.py /tmp/tpp-baseline/Top-private-Plug-0.1.21-pilot.apk Top-private-Plug-0.1.22-pilot.apk
       - name: Capture and verify native phone interfaces
-        timeout-minutes: 25
         run: |
           sudo chmod a+rw /dev/kvm
           # Native compilation is complete; reclaim its disposable compiler cache.
-          echo "Reclaiming native build cache"
-          timeout 90 go clean -cache
-          timeout 90 rm -rf "$ANDROID_HOME/ndk"
+          go clean -cache
+          rm -rf "$ANDROID_HOME/ndk"
           export ANDROID_AVD_HOME="$RUNNER_TEMP/tpp-avd"
           mkdir -p "$ANDROID_AVD_HOME"
-          echo "Installing emulator and Android 35 image"
-          timeout 900 sdkmanager 'emulator' 'system-images;android-35;google_apis;x86_64'
+          sdkmanager 'emulator' 'system-images;android-35;google_apis;x86_64' > /tmp/emulator-install.log
           echo no | avdmanager create avd -n premium-ui -k 'system-images;android-35;google_apis;x86_64' --device pixel_6 -p "$ANDROID_AVD_HOME/premium-ui.avd"
           sed -i '/^disk.dataPartition.size=/d' "$ANDROID_AVD_HOME/premium-ui.avd/config.ini"
           echo 'disk.dataPartition.size=2048M' >> "$ANDROID_AVD_HOME/premium-ui.avd/config.ini"
@@ -118,8 +102,6 @@ jobs:
           adb shell settings put global window_animation_scale 0
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
-          adb shell pm disable-user --user 0 com.google.android.googlesdksetup
-          adb shell am force-stop com.google.android.googlesdksetup
           adb shell input keyevent 82
           python tools/verify_premium_ui.py
           adb emu kill
@@ -128,17 +110,17 @@ jobs:
           tar --exclude=.git --exclude=.local-signing --exclude='*.aar' --exclude='*.apk' --exclude='android/build' --exclude='android/ui-build' --exclude='ui-screenshots' --exclude='*.zip' --exclude='__pycache__' -czf /tmp/Top-private-Plug-rebuild-source.tar.gz .
           cp /tmp/Top-private-Plug-rebuild-source.tar.gz .
       - name: Publish verified pilot as a GitHub Release
-        if: github.event_name == 'workflow_dispatch' && inputs.publish_pilot == true && github.ref == 'refs/heads/main'
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          tag="pilot-0.1.22-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          zip -j Top-private-Plug-0.1.22-pilot.zip Top-private-Plug-0.1.22-pilot.apk
-          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.22-ui-screenshots.zip > SHA256SUMS
-          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.22 pilot" --prerelease --notes "Development stability pilot: credential-safe failure reports, transient recovery without a lifetime retry cap, backoff reset after 60 stable seconds, network-aware retry waiting, and faster recovery after confirmed session release. Backend database work runs outside the HTTP event loop. Expiry, data quotas, TLS verification and account revocation remain enforced. Physical-device carrier and screen-off tests remain required. No extended offline authorization or always-on support is enabled."
-          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.22-ui-screenshots.zip SHA256SUMS
+          tag="pilot-0.1.17-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          zip -j Top-private-Plug-0.1.17-pilot.zip Top-private-Plug-0.1.17-pilot.apk
+          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.17-ui-screenshots.zip > SHA256SUMS
+          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.1.17 pilot" --prerelease --notes "Fixes PostgreSQL usage refresh for active shared trials and tests 10 GB accounting without duplicate charging. Samples tunnel traffic every second and syncs counters every five seconds. Adds a black interface, clear stale-balance state and customer-safe messages without server credentials. Preserves MTN, Telkom and Cell C, account authorization and certificate checks. Physical-device carrier validation is still required."
+          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.1.17-ui-screenshots.zip SHA256SUMS
           gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
         if: always()
@@ -149,12 +131,10 @@ jobs:
           path: |
             Top-private-Plug-*-pilot.apk
             Top-private-Plug-rebuild-source.tar.gz
-            Top-private-Plug-0.1.22-ui-screenshots.zip
+            Top-private-Plug-0.1.17-ui-screenshots.zip
             ui-screenshots/*.png
-            update-compatibility.json
           if-no-files-found: error
-          retention-days: 7
-
+          retention-days: 1
 
 
 

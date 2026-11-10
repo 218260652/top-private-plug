@@ -4,7 +4,7 @@ import java.net.URI;
 
 /** Reject arbitrary update sources before downloading any executable bytes. */
 final class UpdatePolicy {
-    static final int VERSION_CODE=23;
+    static final int VERSION_CODE=18;
     static final String HOST="top-private-plug-downloads.ramashiaemily.chatgpt.site";
     static final String MANIFEST="https://"+HOST+"/updates/latest.json";
     static void validate(int code,String name,String url,String hash,long size)throws Exception{

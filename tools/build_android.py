@@ -22,6 +22,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--sdk', default=os.environ.get('ANDROID_HOME', ''))
     parser.add_argument('--ecj', default=os.environ.get('ECJ_JAR', ''))
+    parser.add_argument('--customer-test', action='store_true')
     args = parser.parse_args()
     if not args.sdk:
         parser.error('Set ANDROID_HOME or pass --sdk')
@@ -41,11 +42,26 @@ def main():
     run(tools / 'aapt2', 'compile', '--dir', source / 'res', '-o', build / 'res.zip')
     ET.register_namespace('android', 'http://schemas.android.com/apk/res/android')
     manifest = ET.parse(source / 'AndroidManifest.xml')
-    manifest.getroot().set('package', 'za.co.topprivateplug')
+    namespace = 'za.co.topprivateplug'
+    app_id = namespace + ('.test' if args.customer_test else '')
+    version_code = '31' if args.customer_test else '18'
+    version_name = '0.2.6' if args.customer_test else '0.1.17-pilot'
+    root = manifest.getroot()
+    root.set('package', app_id)
+    if args.customer_test:
+        android_attr = '{http://schemas.android.com/apk/res/android}'
+        application = root.find('application')
+        application.set(android_attr + 'label', 'Top Private Plug')
+        application.find('activity').set(android_attr + 'name', namespace + '.CustomerActivity')
+        application.find('service').set(android_attr + 'name', namespace + '.TunnelService')
+        application.remove(application.find('provider'))
+        for permission in root.findall('uses-permission'):
+            if permission.get(android_attr + 'name') == 'android.permission.REQUEST_INSTALL_PACKAGES':
+                root.remove(permission)
     manifest.write(build / 'AndroidManifest.xml', encoding='utf-8', xml_declaration=True)
     run(tools / 'aapt2', 'link', '-o', build / 'base.apk', '--manifest', build / 'AndroidManifest.xml',
-        '-I', android, '--java', build / 'gen', '--min-sdk-version', '26', '--target-sdk-version', '35',
-        '-A', source / 'assets', '--version-code', '23', '--version-name', '0.1.22-pilot', '--debug-mode', build / 'res.zip')
+        '-I', android, '--java', build / 'gen', '--custom-package', namespace, '--min-sdk-version', '26', '--target-sdk-version', '35',
+        '-A', source / 'assets', '--version-code', version_code, '--version-name', version_name, '--debug-mode', build / 'res.zip')
     aar = ROOT / 'android' / 'app' / 'libs' / 'libv2ray.aar'
     if not aar.exists():
         raise SystemExit('Build the pinned libv2ray.aar first; see tools/build_xray.sh')
@@ -70,22 +86,21 @@ def main():
                 elif entry.filename.startswith('assets/') and not entry.is_dir():
                     apk.writestr(entry.filename, archive.read(entry))
     run(tools / 'zipalign', '-p', '-f', '4', build / 'unsigned.apk', build / 'aligned.apk')
-    signing = ROOT / '.local-signing'
-    signing.mkdir(exist_ok=True)
+    signing = ROOT / ('.local-signing/customer-test' if args.customer_test else '.local-signing')
+    signing.mkdir(parents=True, exist_ok=True)
     keystore = signing / 'debug.keystore'
     if not keystore.exists():
         run('keytool', '-genkeypair', '-keystore', keystore, '-storepass', 'android', '-keypass', 'android', '-alias',
             'androiddebugkey', '-dname', 'CN=Android Debug,O=Android,C=ZA', '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000')
-    output = ROOT / 'Top-private-Plug-0.1.22-pilot.apk'
+    output = ROOT / ('Top-Private-Plug-0.2.6.apk' if args.customer_test else 'Top-private-Plug-0.1.17-pilot.apk')
     run(tools / 'apksigner', 'sign', '--ks', keystore, '--ks-key-alias', 'androiddebugkey', '--ks-pass', 'pass:android',
         '--key-pass', 'pass:android', '--out', output, build / 'aligned.apk')
     run(tools / 'apksigner', 'verify', '--verbose', output)
-    print('Built DEBUG-SIGNED PILOT:', output)
+    print('Built debug-signed APK:', output)
 
 
 if __name__ == '__main__':
     main()
-
 
 
 

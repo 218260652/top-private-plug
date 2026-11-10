@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def method(source, name):
     # Locate by signature so visibility/synchronization remain production code.
     import re
-    start = re.search(r'    private (?:synchronized )?void ' + name + r'\([^)]*\)', source).start()
+    start = re.search(r'    private (?:synchronized )?void ' + name + r'\(\)', source).start()
     brace = source.index('{', start)
     depth = 1
     end = brace + 1

@@ -1,0 +1,107 @@
+name: Customer staging checks and test APK
+
+on:
+  push:
+    branches: [develop/customer-auth-staging, develop/cell-c-code]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: customer-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    if: (github.ref == 'refs/heads/develop/customer-auth-staging' || github.ref == 'refs/heads/develop/cell-c-code') && github.repository == '218260652/top-private-plug'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: top_private_plug_test_db
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Test backend and dashboard
+        env:
+          TPP_TEST_POSTGRES: postgresql://postgres:ci-only@127.0.0.1/top_private_plug_test_db
+        run: |
+          python -m pip install -r requirements.lock
+          python -m unittest discover -s tests -v
+          node --check backend/static/admin.js
+          node --check backend/static/customers.js
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          cmdline-tools-version: '12266719'
+          log-accepted-android-sdk-licenses: false
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - name: Check out the pinned Xray Android engine
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: 2dust/AndroidLibXrayLite
+          ref: 76a6e2172210613fcb4aa32b6de55bcd9452ce43
+          path: .xray-source
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: .xray-source/go.mod
+          cache-dependency-path: .xray-source/go.sum
+      - name: Build and verify Xray
+        run: |
+          python tools/prepare_xray_compat.py --source .xray-source
+          python tools/verify_xray_chain.py --source .xray-source
+          bash tools/build_xray.sh
+          sudo apt-get install -y strace
+          python tools/verify_android_tun.py --source .xray-source
+      - name: Restore staging signing identity
+        uses: actions/cache@v4
+        with:
+          path: .local-signing/customer-test
+          key: tpp-customer-test-signing-v1
+      - name: Build and verify signed test APK
+        run: |
+          python tools/build_android.py --customer-test
+          apk=Top-Private-Plug-0.2.6.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$apk" > APK-METADATA.txt
+          grep -F "package: name='za.co.topprivateplug.test' versionCode='31' versionName='0.2.6'" APK-METADATA.txt
+          grep -F "application-label:'Top Private Plug'" APK-METADATA.txt
+          git rev-parse HEAD >> APK-METADATA.txt
+          sha256sum "$apk" | tee SHA256SUMS
+      - id: artifact
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Top-Private-Plug-Test-APK
+          path: |
+            Top-Private-Plug-0.2.6.apk
+            APK-METADATA.txt
+            SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish private staging download if Actions storage is unavailable
+        if: steps.artifact.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh repo view --json visibility --jq .visibility)" = PRIVATE
+          tag="customer-update-0.2.6-${GITHUB_SHA:0:12}-${GITHUB_RUN_ATTEMPT}"
+          gh release create "$tag" --target "$GITHUB_SHA" --prerelease --latest=false             --title "Top Private Plug 0.2.6"             --notes "Private staging APK. Requires the isolated test backend. See APK-METADATA.txt and SHA256SUMS."             Top-Private-Plug-0.2.6.apk APK-METADATA.txt SHA256SUMS

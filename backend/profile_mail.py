@@ -37,7 +37,6 @@ class ProfileMailer:
         self.api_key = api_key
         self.wake = asyncio.Event()
         self.task = None
-        self.loop = None
 
     @classmethod
     def from_env(cls, store):
@@ -69,8 +68,7 @@ class ProfileMailer:
         encrypted = self.cipher.encrypt(json.dumps(envelope).encode()).decode()
         db.execute('INSERT INTO profile_mail_outbox(id,payload,attempts,next_attempt,created) VALUES(?,?,0,?,?)',
                    (event, encrypted, self.store.now(), self.store.now()))
-        if self.loop is not None and not self.loop.is_closed():
-            self.loop.call_soon_threadsafe(self.wake.set)
+        self.wake.set()
 
     async def send(self, session, event, envelope):
         # Fixed HTTPS endpoint; do not follow redirects with credentials/configs.
@@ -85,21 +83,10 @@ class ProfileMailer:
             if not isinstance(result.get('id'), str):
                 raise DeliveryFailure(0)
 
-    def pending(self):
-        with self.store.db() as db:
-            return list(db.execute('SELECT id,payload,attempts FROM profile_mail_outbox WHERE next_attempt<=? ORDER BY created,id LIMIT 10',
-                                   (self.store.now(),)))
-    def retry(self, event, delay):
-        with self.store.db() as db:
-            db.execute('UPDATE profile_mail_outbox SET attempts=attempts+1,next_attempt=? WHERE id=?',
-                       (self.store.now()+delay, event))
-
-    def delivered(self, event):
-        with self.store.db() as db:
-            db.execute('DELETE FROM profile_mail_outbox WHERE id=?', (event,))
-
     async def drain_once(self, session):
-        rows = await asyncio.to_thread(self.pending)
+        with self.store.db() as db:
+            rows = list(db.execute('SELECT id,payload,attempts FROM profile_mail_outbox WHERE next_attempt<=? ORDER BY created,id LIMIT 10',
+                                   (self.store.now(),)))
         for row in rows:
             try:
                 envelope = json.loads(self.cipher.decrypt(row['payload'].encode()))
@@ -111,9 +98,12 @@ class ProfileMailer:
                 code = error.status if isinstance(error, DeliveryFailure) else 0
                 LOG.warning('Profile mail delivery pending; status=%d', code)
                 delay = min(3600, 30 * 2 ** min(row['attempts'], 7))
-                await asyncio.to_thread(self.retry, row['id'], delay)
+                with self.store.db() as db:
+                    db.execute('UPDATE profile_mail_outbox SET attempts=attempts+1,next_attempt=? WHERE id=?',
+                               (self.store.now()+delay, row['id']))
             else:
-                await asyncio.to_thread(self.delivered, row['id'])
+                with self.store.db() as db:
+                    db.execute('DELETE FROM profile_mail_outbox WHERE id=?', (row['id'],))
 
     async def run(self):
         timeout = aiohttp.ClientTimeout(total=15)
@@ -132,7 +122,6 @@ class ProfileMailer:
                     pass
 
     async def lifecycle(self, app):
-        self.loop = asyncio.get_running_loop()
         self.task = asyncio.create_task(self.run())
         yield
         self.task.cancel()
