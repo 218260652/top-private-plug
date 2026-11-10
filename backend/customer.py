@@ -99,6 +99,12 @@ def migrate(store):
             size INTEGER NOT NULL,
             apk BYTEA NOT NULL
         )""")
+        db.execute("""CREATE TABLE IF NOT EXISTS customer_app_release_chunks (
+            sha256 TEXT NOT NULL,
+            part INTEGER NOT NULL,
+            apk BYTEA NOT NULL,
+            PRIMARY KEY (sha256,part)
+        )""")
         if store.postgres:
             db.execute("ALTER TABLE customer_users ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'paid' CHECK(account_type IN ('paid','trial'))")
         elif not any(column['name'] == 'account_type' for column in db.execute('PRAGMA table_info(customer_users)')):
@@ -662,8 +668,10 @@ def install(app, store, peer, body, token):
     def read_release(sha=None):
         with store.db() as db:
             if sha is not None:
-                row = db.execute('SELECT apk FROM customer_app_release WHERE slot=1 AND sha256=?', (sha,)).fetchone()
-                return None if row is None else bytes(row['apk'])
+                chunks = [bytes(row['apk']) for row in db.execute("""SELECT c.apk
+                    FROM customer_app_release_chunks c JOIN customer_app_release r ON r.sha256=c.sha256
+                    WHERE r.slot=1 AND c.sha256=? ORDER BY c.part""", (sha,))]
+                return chunks or None
             row = db.execute('SELECT version_code,version_name,sha256,size FROM customer_app_release WHERE slot=1').fetchone()
             return None if row is None else dict(row)
 
@@ -680,19 +688,24 @@ def install(app, store, peer, body, token):
             if apk is None:
                 raise Fault('Check for the latest app update again.', 409)
             response = web.StreamResponse(headers={**headers, 'Content-Type': 'application/vnd.android.package-archive'})
-            response.content_length = len(apk)
+            response.content_length = sum(map(len, apk))
             await response.prepare(request)
-            for offset in range(0, len(apk), 65536):
-                await response.write(apk[offset:offset + 65536])
+            for chunk in apk:
+                await response.write(chunk)
             await response.write_eof()
             return response
 
     def save_release(code, name, sha, size, apk):
         with store.db() as db:
-            db.execute("""INSERT INTO customer_app_release(slot,version_code,version_name,sha256,size,apk)
+            written = db.execute("""INSERT INTO customer_app_release(slot,version_code,version_name,sha256,size,apk)
                 VALUES (1,?,?,?,?,?) ON CONFLICT(slot) DO UPDATE SET version_code=excluded.version_code,
                 version_name=excluded.version_name,sha256=excluded.sha256,size=excluded.size,apk=excluded.apk
-                WHERE customer_app_release.version_code < excluded.version_code""", (code,name,sha,size,apk))
+                WHERE customer_app_release.version_code < excluded.version_code""", (code,name,sha,size,b'')).rowcount
+            if written:
+                for part, offset in enumerate(range(0, size, 65536)):
+                    db.execute('INSERT INTO customer_app_release_chunks(sha256,part,apk) VALUES (?,?,?)',
+                               (sha,part,apk[offset:offset + 65536]))
+                db.execute('DELETE FROM customer_app_release_chunks WHERE sha256<>?', (sha,))
             row = db.execute('SELECT version_code,sha256 FROM customer_app_release WHERE slot=1').fetchone()
             if row['version_code'] != code or row['sha256'] != sha:
                 raise Fault('An equal or newer release is already published.', 409)
