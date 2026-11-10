@@ -100,34 +100,35 @@ jobs:
           sha256sum "$apk" | tee SHA256SUMS
       - name: Encrypt signed APK for private delivery
         run: |
-          cat > "$RUNNER_TEMP/build49-recipient.pem" <<'PEM'
+          cat > "$RUNNER_TEMP/build53-recipient.pem" <<'PEM'
           -----BEGIN CERTIFICATE-----
-          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
+          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
           -----END CERTIFICATE-----
           PEM
           openssl cms -encrypt -binary -aes-256-gcm -outform DER \
-            -in Top-Private-Plug-0.2.13.apk -out Build-53.apk.cms "$RUNNER_TEMP/build49-recipient.pem"
+            -in Top-Private-Plug-0.2.13.apk -out Build-53.apk.cms "$RUNNER_TEMP/build53-recipient.pem"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Top-Private-Plug-Build-53-Encrypted
