@@ -94,8 +94,9 @@ jobs:
           python tools/build_android.py --customer-test
           apk=Top-Private-Plug-0.2.13.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$apk" > APK-METADATA.txt
-          grep -F "package: name='za.co.topprivateplug.test' versionCode='53' versionName='0.2.13'" APK-METADATA.txt
+          grep -F "package: name='za.co.topprivateplug.test' versionCode='54' versionName='0.2.13'" APK-METADATA.txt
           grep -F "application-label:'Top Private Plug'" APK-METADATA.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump xmltree --file AndroidManifest.xml "$apk" | grep -F '"za.co.topprivateplug.UpdateProvider"'
           git rev-parse HEAD >> APK-METADATA.txt
           sha256sum "$apk" | tee SHA256SUMS
       - name: Encrypt signed APK for private delivery
@@ -128,12 +129,12 @@ jobs:
           -----END CERTIFICATE-----
           PEM
           openssl cms -encrypt -binary -aes-256-gcm -outform DER \
-            -in Top-Private-Plug-0.2.13.apk -out Build-53.apk.cms "$RUNNER_TEMP/build53-recipient.pem"
+            -in Top-Private-Plug-0.2.13.apk -out Build-54.apk.cms "$RUNNER_TEMP/build53-recipient.pem"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Top-Private-Plug-Build-53-Encrypted
+          name: Top-Private-Plug-Build-54-Encrypted
           path: |
-            Build-53.apk.cms
+            Build-54.apk.cms
             APK-METADATA.txt
             SHA256SUMS
           if-no-files-found: error
