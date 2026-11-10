@@ -17,8 +17,10 @@ final class Vault {
     static final String DEFAULT_SERVICE_ORIGIN = "https://top-private-plug-admin.onrender.com";
     static final String STAGING_ORIGIN = "https://top-private-plug-test-api.onrender.com";
     private final SharedPreferences prefs;
+    private final android.content.res.AssetManager assets;
     final boolean staging;
     Vault(Context context) {
+        assets = context.getAssets();
         prefs = context.getSharedPreferences("tpp", Context.MODE_PRIVATE);
         staging = "za.co.topprivateplug.test".equals(context.getPackageName());
     }
@@ -84,12 +86,30 @@ final class Vault {
                 JSONObject data = new JSONObject(memoryCustomerCache != null ? memoryCustomerCache
                     : decrypt(prefs.getString("customer_bootstrap", "")));
                 JSONObject session = customerSession();
-                if (session.has("marker") && session.optString("marker").equals(data.optString("marker"))
-                        && data.getJSONObject("account").getLong("expires") > System.currentTimeMillis() / 1000)
+                if (session.has("marker") && session.optString("marker").equals(data.optString("marker")))
                     return data;
             } catch (Exception ignored) {}
             return new JSONObject();
         }
+    }
+
+    static boolean usesBundledProfile(String carrier) {
+        return "MTN".equals(carrier) || "Telkom".equals(carrier);
+    }
+
+    JSONObject customerTunnelProfile(String carrier) throws Exception {
+        if (!usesBundledProfile(carrier)) return savedCustomerProfile(carrier);
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                new java.io.InputStreamReader(assets.open("mobile-vless.json"), java.nio.charset.StandardCharsets.UTF_8))) {
+            StringBuilder json = new StringBuilder();
+            for (String line; (line = reader.readLine()) != null;) json.append(line);
+            return new JSONObject(json.toString());
+        }
+    }
+
+    JSONObject savedCustomerProfile(String carrier) {
+        JSONObject profiles = customerCache().optJSONObject("profiles");
+        return profiles == null ? null : profiles.optJSONObject(carrier);
     }
 
     void saveCustomerCatalog(String marker, JSONObject account, JSONArray networks, JSONObject profiles) throws Exception {

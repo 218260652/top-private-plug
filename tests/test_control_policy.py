@@ -18,6 +18,7 @@ public class PolicyHarness {
   System.out.println(ControlPolicy.rules("https://account.example",true));
   System.out.println(ControlPolicy.rules("https://account.example:8443",false));
   System.out.println(ControlPolicy.rules("https://127.0.0.1:443",true));
+  System.out.println(ControlPolicy.rules("https://account.example",true,true));
   for(String origin:new String[]{"http://account.example","https://evil@account.example","https://account.example/path","https://account.example?x=y","https://account.example#x","https://account.example:99999"}) {
    boolean rejected=false;try{ControlPolicy.rules(origin,true);}catch(Exception e){rejected=true;}
    if(!rejected)throw new AssertionError(origin);
@@ -28,7 +29,7 @@ public class PolicyHarness {
             harness=Path(tmp)/'PolicyHarness.java';harness.write_text(source)
             subprocess.run(['javac','-d',tmp,str(JAVA/'ControlPolicy.java'),str(harness)],check=True,capture_output=True,text=True,timeout=30)
             result=subprocess.run(['java','-cp',tmp,'za.co.topprivateplug.PolicyHarness'],check=True,capture_output=True,text=True,timeout=10)
-        inbound,boot,full,ip=map(json.loads,result.stdout.splitlines())
+        inbound,boot,full,ip,probe=map(json.loads,result.stdout.splitlines())
         self.assertEqual(inbound['listen'],'127.0.0.1');self.assertEqual(inbound['protocol'],'http')
         self.assertEqual(boot[0]['domain'],['full:account.example']);self.assertEqual(boot[0]['port'],'443')
         self.assertEqual(boot[0]['inboundTag'],['admin-control']);self.assertEqual(boot[0]['outboundTag'],'trojan')
@@ -37,3 +38,7 @@ public class PolicyHarness {
         self.assertEqual(ip[0]['ip'],['127.0.0.1'])
 
 
+        self.assertEqual(probe[:2], boot[:2])
+        self.assertEqual(probe[2], {'type':'field','domain':['full:www.google.com'],
+                                    'port':'443','network':'tcp','outboundTag':'trojan'})
+        self.assertEqual(probe[3], boot[2])

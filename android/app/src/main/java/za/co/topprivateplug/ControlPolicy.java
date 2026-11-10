@@ -4,7 +4,14 @@ import java.net.URI;
 
 /** Pure policy generation, exercised independently of Android and by native Xray fixtures. */
 final class ControlPolicy {
+    private static final String PROBE_HOST = "www.google.com";
+    static final String BOOTSTRAP_PROBE_URL = "https://" + PROBE_HOST + "/generate_204";
+
     static String rules(String origin, boolean bootstrap) throws Exception {
+        return rules(origin, bootstrap, false);
+    }
+
+    static String rules(String origin, boolean bootstrap, boolean probe) throws Exception {
         URI uri=new URI(origin);
         if(!"https".equals(uri.getScheme()) || uri.getHost()==null || uri.getUserInfo()!=null || uri.getQuery()!=null || uri.getFragment()!=null
             || (!uri.getPath().isEmpty() && !"/".equals(uri.getPath()))) throw new Exception("Invalid account service origin.");
@@ -18,6 +25,8 @@ final class ControlPolicy {
             ",\"port\":\""+port+"\",\"network\":\"tcp\",\"outboundTag\":\"trojan\"},"+
             (bootstrap?"":"{\"type\":\"field\",\"inboundTag\":[\"admin-control\"],\"domain\":[\"full:top-private-plug-downloads.ramashiaemily.chatgpt.site\"],\"port\":\"443\",\"network\":\"tcp\",\"outboundTag\":\"trojan\"},")+
             "{\"type\":\"field\",\"inboundTag\":[\"admin-control\"],\"network\":\"tcp,udp\",\"outboundTag\":\"block\"}"+
+            (bootstrap && probe ? ",{\"type\":\"field\",\"domain\":[\"full:" + PROBE_HOST +
+                "\"],\"port\":\"443\",\"network\":\"tcp\",\"outboundTag\":\"trojan\"}" : "")+
             (bootstrap?",{\"type\":\"field\",\"network\":\"tcp,udp\",\"outboundTag\":\"block\"}":"")+"]";
     }
     static String inbound(int port) throws Exception {
