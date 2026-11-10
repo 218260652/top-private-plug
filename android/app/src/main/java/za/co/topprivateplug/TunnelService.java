@@ -18,6 +18,7 @@ public final class TunnelService extends VpnService {
     public static volatile String detail = "";
     public static volatile long uploaded, downloaded, latency = -1;
     public static volatile long connectedAt;
+    static final String TUNNEL_RUNNING = "Tunnel running";
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile ParcelFileDescriptor tun;
     private Thread worker, pinger;
@@ -32,7 +33,6 @@ public final class TunnelService extends VpnService {
     private volatile String phase = "Starting VPN service";
     private volatile boolean reconnectAllowed, retryFailure, proxyFailure, retryPending, hadLease;
     private int retryAttempt;
-    private volatile boolean directEndpointRetry;
     private String activeProfile, accessToken, accountOrigin;
     private Runnable retryTask;
 
@@ -40,10 +40,7 @@ public final class TunnelService extends VpnService {
         return vault.staging ? vault.customerSession().optString("marker") : vault.token();
     }
 
-    private volatile String carrierCode;
-
     private void requestStop() {
-        carrierCode = null;
         reconnectAllowed = false;
         retryPending = false;
         if (retryTask != null) main.removeCallbacks(retryTask);
@@ -114,10 +111,8 @@ public final class TunnelService extends VpnService {
         if (VpnService.prepare(this) != null) { stopSelf(); return START_NOT_STICKY; }
         Vault vault = new Vault(this);
         activeProfile = intent.getStringExtra("profile_id");
-        carrierCode = vault.staging && "Cell C".equals(activeProfile) ? intent.getStringExtra("carrier_code") : null;
-        intent.removeExtra("carrier_code");
         accessToken = sessionMarker(vault); accountOrigin = vault.endpoint();
-        retryAttempt = 0; directEndpointRetry = false; reconnectAllowed = true;
+        retryAttempt = 0; reconnectAllowed = true;
         beginAttempt();
         return START_NOT_STICKY;
     }
@@ -163,66 +158,22 @@ public final class TunnelService extends VpnService {
             try(java.net.ServerSocket reservation=new java.net.ServerSocket(0,1,java.net.InetAddress.getByName("127.0.0.1"))) {
                 controlPort=reservation.getLocalPort();
             }
-            // On a validated connection, fetch the authorized profile directly.
-            // With no validated network, the saved route can still reach the account service.
-            boolean directAccount = vault.staging && NetworkState.validated(this);
-            JSONObject saved;
-            if (directAccount) {
-                saved = null;
-            } else if (vault.staging) {
-                JSONObject profiles = vault.customerCache().optJSONObject("profiles");
-                JSONObject config = profiles == null ? null : profiles.optJSONObject(profileId);
-                saved = config == null ? null : new JSONObject().put("config", config);
-            } else saved = vault.bootstrap(profileId);
-            if(saved!=null) {
-                progress("Starting saved VLESS or Trojan connection before account verification");
-                ConnectionReport.stage(ConnectionReport.Stage.SAVED_PROFILE_START);
-                synchronized(xrayLock) {
-                    if(!running.get()) return;
-                    xray=new XrayEngine(getFilesDir());
-                    // No TUN inbound or Android VPN interface exists at this stage.
-                    // Only the loopback account proxy is exposed; all other targets are blocked.
-                    xray.start(TunnelConfig.control(saved.getJSONObject("config"),vault.endpoint(),controlPort,true).toString(),0);
-                    Api.throughTunnel(vault.endpoint(),controlPort,xray::clearUpstreamStatus);
-                }
-                ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_VIA_TUNNEL);
-            } else if (directAccount) {
-                progress("Checking your account and fetching the current carrier profile");
-                ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_VIA_DIRECT);
-            } else if (vault.staging && !"Cell C".equals(profileId)) {
-                ConnectionReport.stage(ConnectionReport.Stage.NO_SAVED_PROFILE);
-                throw new Exception("No saved profile. Use working internet and tap Refresh account once.");
-            } else if (!vault.staging) {
-                ConnectionReport.stage(ConnectionReport.Stage.NO_SAVED_PROFILE);
-                if(!NetworkState.validated(this)) throw new Exception("No saved connection settings for this profile. Use Wi-Fi once and tap Save connection settings before testing mobile data.");
-                progress("Saving the connection profile for first use; Wi-Fi or mobile data is needed once");
-            }
-            JSONObject result;
-            try {
-                result = vault.staging ? new CustomerApi(vault).connect(profileId, carrierCode) : api.connect(profileId, this::progress);
-            } catch (Api.HttpError error) {
-                // Customer connect returns 409 while a previous device lease is active.
-                // Use the existing lease cooldown and leave other account errors terminal.
-                if (!vault.staging || !error.authenticated || error.status != 409) throw error;
-                if (running.get()) {
-                    hadLease = true;
-                    retryFailure = true;
-                    detail = "The previous VPN session is still active. Waiting for it to expire.";
-                }
-                return;
-            }
-            if (!"xray".equals(result.optString("engine"))) throw new Exception("Only imported connection profiles are supported. Ask your admin to replace this profile.");
-            xrayLease=result.getString("lease"); hadLease=true;
-            leaseDeadline=android.os.SystemClock.elapsedRealtime()+30000;
             if (vault.staging) {
-                try { vault.saveCustomerConnection(accessToken, profileId, result.getJSONObject("config")); }
-                catch (Exception ignored) { /* The issued lease remains usable without a cached profile. */ }
+                JSONObject config = vault.customerTunnelProfile(profileId);
+                if (config == null || accessToken.isEmpty() || !accessToken.equals(sessionMarker(vault))) {
+                    ConnectionReport.stage(ConnectionReport.Stage.NO_SAVED_PROFILE);
+                    throw new Exception("Use working internet to save this profile first.");
+                }
+                ConnectionReport.stage(ConnectionReport.Stage.SAVED_PROFILE_START);
+                runXray(config, null, null);
+            } else {
+                JSONObject result = api.connect(profileId, this::progress);
+                if (!"xray".equals(result.optString("engine"))) throw new Exception("Only imported connection profiles are supported. Ask your admin to replace this profile.");
+                xrayLease = result.getString("lease");
+                hadLease = true;
+                leaseDeadline = android.os.SystemClock.elapsedRealtime() + leaseMillis(result);
+                runXray(result.getJSONObject("config"), result.getJSONObject("profile"), api);
             }
-            synchronized(xrayLock) {
-                if(!running.get()) return;
-                if(xray!=null) { xray.stop(); xray=null; }
-            }
-            runXray(api, result, saved != null);
         } catch (LinkageError error) {
             ConnectionReport.stage(ConnectionReport.Stage.ENGINE_LOAD_FAILED);
             if (running.get()) detail = "The Xray engine could not load on this phone. Install the complete current APK.";
@@ -230,9 +181,11 @@ public final class TunnelService extends VpnService {
             if (running.get()) {
                 XrayEngine engine = xray;
                 int proxyStatus=engine==null?0:engine.upstreamStatus();
-                boolean tryDirect = error instanceof DirectEndpointRetry;
-                if(proxyStatus!=0){error=new ProxyFailure(proxyStatus);proxyFailure=true;}
-                retryFailure=tryDirect || RetryPolicy.transientFailure(error);
+                if (proxyStatus != 0 && !(error instanceof Api.HttpError)) {
+                    error = new ProxyFailure(proxyStatus);
+                }
+                proxyFailure |= error instanceof ProxyFailure;
+                retryFailure=RetryPolicy.transientFailure(error);
                 ConnectionReport.failure(null, error);
                 detail = error instanceof Api.HttpError
                     ? (new Vault(this).staging ? error.getMessage() : CustomerMessage.forStatus(((Api.HttpError)error).status))
@@ -241,14 +194,7 @@ public final class TunnelService extends VpnService {
         } finally {
             stopTunnel();
             if (xrayLease != null) try {
-                Vault vault = new Vault(this);
-                if (vault.staging) {
-                    // Cancellation may interrupt this worker before the best-effort release.
-                    Thread.interrupted();
-                    new CustomerApi(vault).call("disconnect", new JSONObject().put("lease", xrayLease));
-                    hadLease = false;
-                }
-                else new Api(vault).request("/v1/xray/disconnect", new JSONObject().put("lease", xrayLease), true);
+                new Api(new Vault(this)).request("/v1/xray/disconnect", new JSONObject().put("lease", xrayLease), true);
             } catch (Exception ignored) {}
         }
     }
@@ -266,16 +212,17 @@ public final class TunnelService extends VpnService {
         return delay;
     }
 
-    private static final class DirectEndpointRetry extends Exception {
-        DirectEndpointRetry(Exception cause) { super("Retrying the same server directly.", cause); }
-    }
-
-    private void runXray(Api api, JSONObject result, boolean startedWithProfile) throws Exception {
-        JSONObject profile = result.getJSONObject("profile");
-        String lease = result.getString("lease"); xrayLease = lease;
+    private void runXray(JSONObject source, JSONObject profile, Api api) throws Exception {
         if (!running.get()) return;
-        leaseDeadline = android.os.SystemClock.elapsedRealtime() + leaseMillis(result);
-        CustomerApi customer = new Vault(this).staging ? new CustomerApi(new Vault(this)) : null;
+        JSONObject config = api == null ? new JSONObject(source.toString())
+            : TunnelConfig.control(source, new Vault(this).endpoint(), controlPort, false);
+        boolean mtnOrTelkom = api == null && ("MTN".equals(activeProfile) || "Telkom".equals(activeProfile));
+        boolean proxied = mtnOrTelkom && TunnelConfig.hasHttpUpstream(config);
+        if (mtnOrTelkom) {
+            ConnectionReport.stage(proxied ? ConnectionReport.Stage.HTTP_UPSTREAM_ROUTE
+                : ConnectionReport.Stage.DIRECT_ENDPOINT_ROUTE);
+            if (!proxied) TunnelConfig.resolveDirectEndpoint(config, this);
+        }
         progress("Creating the Android VPN interface");
         ConnectionReport.stage(ConnectionReport.Stage.VPN_INTERFACE);
         // Native sockets bypass the TUN; API calls explicitly use its loopback control proxy.
@@ -284,69 +231,43 @@ public final class TunnelService extends VpnService {
             .addRoute("0.0.0.0", 0).addRoute("::", 0).addDnsServer("1.1.1.1").setBlocking(false);
         builder.addDisallowedApplication(getPackageName());
         XrayEngine engine;
-        boolean mtnOrTelkom = customer != null && ("MTN".equals(activeProfile) || "Telkom".equals(activeProfile));
-        boolean directRouteAvailable = mtnOrTelkom && NetworkState.validated(this);
-        boolean proxied;
         synchronized (xrayLock) {
             if (!running.get()) return;
             tun = builder.establish();
             if (tun == null) throw new Exception("Android could not create the VPN interface.");
             engine = new XrayEngine(getFilesDir()); xray = engine;
-            JSONObject config = TunnelConfig.control(result.getJSONObject("config"),new Vault(this).endpoint(),controlPort,false);
-            boolean hasUpstream = mtnOrTelkom && TunnelConfig.hasHttpUpstream(config);
-            proxied = hasUpstream && !directEndpointRetry;
-            if (hasUpstream && directEndpointRetry) TunnelConfig.useDirectEndpoint(config);
-            if (mtnOrTelkom) ConnectionReport.stage(proxied ? ConnectionReport.Stage.HTTP_UPSTREAM_ROUTE
-                : ConnectionReport.Stage.DIRECT_ENDPOINT_ROUTE);
             // Android owns the TUN. Avoid desktop name discovery (net.Interfaces).
             config.getJSONArray("inbounds").getJSONObject(0).getJSONObject("settings").put("name", "tpp0");
             progress("Starting Xray with the imported VLESS or Trojan profile");
             ConnectionReport.stage(ConnectionReport.Stage.NATIVE_START);
             engine.start(config.toString(), tun.getFd());
-            // Staging control requests stay reachable even if carrier traffic fails.
-            if (customer == null || startedWithProfile) Api.throughTunnel(new Vault(this).endpoint(),controlPort,engine::clearUpstreamStatus);
+            if (api != null) Api.throughTunnel(new Vault(this).endpoint(), controlPort, engine::clearUpstreamStatus);
         }
-        progress("Checking HTTPS traffic through the Xray tunnel");
-        ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
-        // Use the pinned core's HTTPS connectivity target. Admin-host reachability
-        // is checked independently by authenticated API calls and heartbeats.
-        try {
+        if (!mtnOrTelkom) {
+            progress("Checking HTTPS traffic through the Xray tunnel");
+            ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
             try {
                 latency = httpsProbe(engine, "");
             } catch (Exception error) {
-                // Leave time for the first heartbeat under the current lease.
-                if (!mtnOrTelkom || !running.get() || android.os.SystemClock.elapsedRealtime() + 15000 >= leaseDeadline
-                        || engine.upstreamStatus() != 0) throw error;
-                ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_ALTERNATE);
-                latency = httpsProbe(engine, "https://www.cloudflare.com/cdn-cgi/trace");
+                ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_FAILED);
+                throw error;
             }
-        } catch (Exception error) {
-            ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_FAILED);
-            if (proxied && running.get() && directRouteAvailable) {
-                directEndpointRetry = true;
-                ConnectionReport.stage(ConnectionReport.Stage.DIRECT_ENDPOINT_RETRY);
-                throw new DirectEndpointRetry(error);
-            }
-            if (directEndpointRetry && running.get()) {
-                // A failed direct fallback must not pin future attempts to that route.
-                directEndpointRetry = false;
-                proxyFailure = true;
-            }
-            throw error;
+            ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_OK);
         }
-        ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_OK);
-        if (customer != null) {
-            if (!running.get()) return;
-            JSONObject check = customer.call("heartbeat", new JSONObject().put("lease", lease));
-            if (!check.optBoolean("ok")) throw new Exception("Account check failed.");
-            leaseDeadline = android.os.SystemClock.elapsedRealtime() + leaseMillis(check);
-        }
+        if (!engine.running()) throw new RetryPolicy.TransportFailure("The Xray engine stopped unexpectedly.");
         synchronized (this) {
             if (!running.get()) return;
+            if (api == null) leaseDeadline = Long.MAX_VALUE;
             connectedAt=android.os.SystemClock.elapsedRealtime();
-            state = "Connected";
-            ConnectionReport.stage(ConnectionReport.Stage.CONNECTED);
-            detail = profile.optBoolean("insecure_tls") ? "Test profile: server certificate verification is disabled." : "Your connection is active.";
+            if (mtnOrTelkom) {
+                state = TUNNEL_RUNNING;
+                ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_STARTED_UNVERIFIED);
+                detail = "VPN interface is active. Internet access has not been verified.";
+            } else {
+                state = "Connected";
+                ConnectionReport.stage(ConnectionReport.Stage.CONNECTED);
+                detail = profile != null && profile.optBoolean("insecure_tls") ? "Test profile: server certificate verification is disabled." : "Your connection is active.";
+            }
             showNotification(detail);
         }
         TrafficTotals totals = new TrafficTotals();
@@ -357,14 +278,13 @@ public final class TunnelService extends VpnService {
                 totals.add(engine.traffic(), "trojan");
                 uploaded = totals.up; downloaded = totals.down;
             }
-            if (android.os.SystemClock.elapsedRealtime() < nextHeartbeat) {
+            if (api == null || android.os.SystemClock.elapsedRealtime() < nextHeartbeat) {
                 try { Thread.sleep(1000); } catch (InterruptedException cancelled) { break; }
                 continue;
             }
             try {
-                JSONObject usage = new JSONObject().put("lease", lease).put("up", uploaded).put("down", downloaded);
-                JSONObject check = customer == null ? api.request("/v1/xray/heartbeat", usage, true)
-                    : customer.call("heartbeat", usage);
+                JSONObject usage = new JSONObject().put("lease", xrayLease).put("up", uploaded).put("down", downloaded);
+                JSONObject check = api.request("/v1/xray/heartbeat", usage, true);
                 if (!check.optBoolean("ok")) throw new Exception("Account check failed.");
                 // Failed heartbeats never extend the account authorization deadline.
                 leaseDeadline = android.os.SystemClock.elapsedRealtime() + leaseMillis(check);
@@ -402,7 +322,7 @@ public final class TunnelService extends VpnService {
         // Native startup holds xrayLock and stopLoop can wait on native I/O.
         // Lifecycle callbacks must never acquire that lock or call native shutdown.
         Thread previous = worker;
-        if (previous != null) {
+        if (previous != null && previous != Thread.currentThread()) {
             // Closing the HTTPS request must not block the Android main thread or TUN teardown.
             new Thread(() -> Api.cancelRequest(previous), "tpp-account-cancel").start();
         }
