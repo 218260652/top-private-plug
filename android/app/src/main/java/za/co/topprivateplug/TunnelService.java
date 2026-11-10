@@ -18,6 +18,7 @@ public final class TunnelService extends VpnService {
     public static volatile String detail = "";
     public static volatile long uploaded, downloaded, latency = -1;
     public static volatile long connectedAt;
+    static final String TUNNEL_RUNNING = "Tunnel running";
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile ParcelFileDescriptor tun;
     private Thread worker, pinger;
@@ -32,7 +33,6 @@ public final class TunnelService extends VpnService {
     private volatile String phase = "Starting VPN service";
     private volatile boolean reconnectAllowed, retryFailure, proxyFailure, retryPending, hadLease;
     private int retryAttempt;
-    private volatile boolean directEndpointRetry;
     private String activeProfile, accessToken, accountOrigin;
     private Runnable retryTask;
 
@@ -112,7 +112,7 @@ public final class TunnelService extends VpnService {
         Vault vault = new Vault(this);
         activeProfile = intent.getStringExtra("profile_id");
         accessToken = sessionMarker(vault); accountOrigin = vault.endpoint();
-        retryAttempt = 0; directEndpointRetry = false; reconnectAllowed = true;
+        retryAttempt = 0; reconnectAllowed = true;
         beginAttempt();
         return START_NOT_STICKY;
     }
@@ -181,12 +181,11 @@ public final class TunnelService extends VpnService {
             if (running.get()) {
                 XrayEngine engine = xray;
                 int proxyStatus=engine==null?0:engine.upstreamStatus();
-                boolean tryDirect = error instanceof DirectEndpointRetry;
                 if (proxyStatus != 0 && !(error instanceof Api.HttpError)) {
                     error = new ProxyFailure(proxyStatus);
                 }
                 proxyFailure |= error instanceof ProxyFailure;
-                retryFailure=tryDirect || RetryPolicy.transientFailure(error);
+                retryFailure=RetryPolicy.transientFailure(error);
                 ConnectionReport.failure(null, error);
                 detail = error instanceof Api.HttpError
                     ? (new Vault(this).staging ? error.getMessage() : CustomerMessage.forStatus(((Api.HttpError)error).status))
@@ -213,19 +212,12 @@ public final class TunnelService extends VpnService {
         return delay;
     }
 
-    private static final class DirectEndpointRetry extends Exception {
-        DirectEndpointRetry(Exception cause) { super("Retrying the same server directly.", cause); }
-    }
-
     private void runXray(JSONObject source, JSONObject profile, Api api) throws Exception {
         if (!running.get()) return;
         JSONObject config = api == null ? new JSONObject(source.toString())
             : TunnelConfig.control(source, new Vault(this).endpoint(), controlPort, false);
         boolean mtnOrTelkom = api == null && ("MTN".equals(activeProfile) || "Telkom".equals(activeProfile));
-        boolean directRouteAvailable = mtnOrTelkom && NetworkState.validated(this);
-        boolean hasUpstream = mtnOrTelkom && TunnelConfig.hasHttpUpstream(config);
-        boolean proxied = hasUpstream && !directEndpointRetry;
-        if (hasUpstream && directEndpointRetry) TunnelConfig.useDirectEndpoint(config);
+        boolean proxied = mtnOrTelkom && TunnelConfig.hasHttpUpstream(config);
         if (mtnOrTelkom) {
             ConnectionReport.stage(proxied ? ConnectionReport.Stage.HTTP_UPSTREAM_ROUTE
                 : ConnectionReport.Stage.DIRECT_ENDPOINT_ROUTE);
@@ -251,41 +243,31 @@ public final class TunnelService extends VpnService {
             engine.start(config.toString(), tun.getFd());
             if (api != null) Api.throughTunnel(new Vault(this).endpoint(), controlPort, engine::clearUpstreamStatus);
         }
-        progress("Checking HTTPS traffic through the Xray tunnel");
-        ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
-        // Use the pinned core's HTTPS connectivity target. Admin-host reachability
-        // is checked independently by authenticated API calls and heartbeats.
-        try {
+        if (!mtnOrTelkom) {
+            progress("Checking HTTPS traffic through the Xray tunnel");
+            ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
             try {
                 latency = httpsProbe(engine, "");
             } catch (Exception error) {
-                if (!mtnOrTelkom || !running.get() || android.os.SystemClock.elapsedRealtime() + 15000 >= leaseDeadline
-                        || error instanceof ProxyFailure || !RetryPolicy.transientFailure(error)) throw error;
-                ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_ALTERNATE);
-                latency = httpsProbe(engine, "https://www.cloudflare.com/cdn-cgi/trace");
+                ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_FAILED);
+                throw error;
             }
-        } catch (Exception error) {
-            ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_FAILED);
-            if (proxied && running.get() && directRouteAvailable && RetryPolicy.transientFailure(error)) {
-                directEndpointRetry = true;
-                ConnectionReport.stage(ConnectionReport.Stage.DIRECT_ENDPOINT_RETRY);
-                throw new DirectEndpointRetry(error);
-            }
-            if (directEndpointRetry && running.get()) {
-                // A failed direct fallback must not pin future attempts to that route.
-                directEndpointRetry = false;
-                proxyFailure = true;
-            }
-            throw error;
+            ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_OK);
         }
-        ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_OK);
+        if (!engine.running()) throw new RetryPolicy.TransportFailure("The Xray engine stopped unexpectedly.");
         synchronized (this) {
             if (!running.get()) return;
             if (api == null) leaseDeadline = Long.MAX_VALUE;
             connectedAt=android.os.SystemClock.elapsedRealtime();
-            state = "Connected";
-            ConnectionReport.stage(ConnectionReport.Stage.CONNECTED);
-            detail = profile != null && profile.optBoolean("insecure_tls") ? "Test profile: server certificate verification is disabled." : "Your connection is active.";
+            if (mtnOrTelkom) {
+                state = TUNNEL_RUNNING;
+                ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_STARTED_UNVERIFIED);
+                detail = "VPN interface is active. Internet access has not been verified.";
+            } else {
+                state = "Connected";
+                ConnectionReport.stage(ConnectionReport.Stage.CONNECTED);
+                detail = profile != null && profile.optBoolean("insecure_tls") ? "Test profile: server certificate verification is disabled." : "Your connection is active.";
+            }
             showNotification(detail);
         }
         TrafficTotals totals = new TrafficTotals();
