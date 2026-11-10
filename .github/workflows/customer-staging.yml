@@ -98,23 +98,42 @@ jobs:
           grep -F "application-label:'Top Private Plug'" APK-METADATA.txt
           git rev-parse HEAD >> APK-METADATA.txt
           sha256sum "$apk" | tee SHA256SUMS
-      - id: artifact
-        continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - name: Encrypt signed APK for private delivery
+        run: |
+          cat > "$RUNNER_TEMP/build49-recipient.pem" <<'PEM'
+          -----BEGIN CERTIFICATE-----
+          MIIEDTCCAnWgAwIBAgIUHSbEaz0CFqOc5MilGcEjtkiJEQAwDQYJKoZIhvcNAQEL
+          BQAwFjEUMBIGA1UEAwwLVFBQLWJ1aWxkNDkwHhcNMjYxMTEwMDUwMDAyWhcNMjYx
+          MjEwMDUwMDAyWjAWMRQwEgYDVQQDDAtUUFAtYnVpbGQ0OTCCAaIwDQYJKoZIhvcN
+          AQEBBQADggGPADCCAYoCggGBANPS7GvcD93+dOX1DG3O6QONBayZ7gD429DjvpQP
+          h4YJ68kEQRbGasxZyMsCh7xavogchdyC4eF7frv7bVta2DCZohbPsoq2RaqtjCYP
+          Ux1GcQjJ8zmBjHmjio1AMf9u+ADZYufS23qKkRHFJqnhBPlrPyqxCGEV8hU/X+el
+          wAYpGkCWMRMI8yVt7b58xQCX3bYq/K51DfRr5xShAEgBCd0rKMjimZkjgsUKIewT
+          OHn2Eii2R2iK+CmYPHy8mTw23MWCLS4f93YhWab4pYV+tdzczyI30/V8yHcNAZZi
+          lmCEKhcIki9JqexCw+9K5rZMNMWfPzjiEHB5K9X4S+EaiQKYxMXELcCum3BRHZEa
+          IFKo961tQXVbg7Si7wSRuhwqvsh+sX7ebQXWUeSrb76aoL35TSgDxiTjNr/W2Yg3
+          3CVOoR2WUYEFsDIBK7zZ60zhkf6A2gOHo7bAXnR+Gem0mkOp+lju6VD+djx0M2cw
+          t1HpEbfLYiKYeTvbgfsno66rTQIDAQABo1MwUTAdBgNVHQ4EFgQUEMxYw6SV72ur
+          6LrODQpa5qsIl28wHwYDVR0jBBgwFoAUEMxYw6SV72ur6LrODQpa5qsIl28wDwYD
+          VR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAYEAq+apHwW/lNIvHSR5azpJ
+          eacilrmbfM5LyypAsF+aoFhSRu2FhFrZzDlmdLnlpYs3lNfvK+9BjOPQFCl4CVAu
+          GIj7lWgVse1W24fwehfuX0QYfAKYUNQlrUUGStcCGGaP/eluhcK5nzM52WZkmIBb
+          gxL6c672Erb4n1dCmneDTRmec4flnr9sLglz72vs+MdBd9EssjwWRz6+AJQfhC+i
+          3avYYLHx/UlzyDzFT2FuVQSJGRe7cYA94uXuoiWVhxO+p/cMPwKTlwRAyWwqxVDD
+          +52eu1vzdwLT+e5i9gGR3sCI2T3EJmc2y3shkzYi7hFW3UTKOuNQJ03GDSeFpnbN
+          mKmiz+ATSlZ4qQU7p2l8OYVOAaf/2sR1wxAJ7rAt8+jSOKxcY0nhl+DRa0DvwKXr
+          e/oUm04Q/AkBVN21/3NYG1+U+m+2UUL6IZ6F/zfid5j/gzWSIYkG9+orrdl6RPkR
+          A4cl5PQen3Emhqh+dcklnR2tAJxKUq/NOA5g65yU5/2p
+          -----END CERTIFICATE-----
+          PEM
+          openssl cms -encrypt -binary -aes-256-gcm -outform DER \
+            -in Top-Private-Plug-0.2.13.apk -out Build-49.apk.cms "$RUNNER_TEMP/build49-recipient.pem"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Top-Private-Plug-Test-APK
+          name: Top-Private-Plug-Build-49-Encrypted
           path: |
-            Top-Private-Plug-0.2.13.apk
+            Build-49.apk.cms
             APK-METADATA.txt
             SHA256SUMS
           if-no-files-found: error
-          retention-days: 30
-
-      - name: Publish private staging download if Actions storage is unavailable
-        if: steps.artifact.outcome == 'failure' && github.event_name != 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          test "$(gh repo view --json visibility --jq .visibility)" = PRIVATE
-          tag="customer-update-0.2.13-${GITHUB_SHA:0:12}-${GITHUB_RUN_ATTEMPT}"
-          gh release create "$tag" --target "$GITHUB_SHA" --prerelease --latest=false             --title "Top Private Plug 0.2.13"             --notes "Private staging APK. Requires the isolated test backend. See APK-METADATA.txt and SHA256SUMS."             Top-Private-Plug-0.2.13.apk APK-METADATA.txt SHA256SUMS
+          retention-days: 1
