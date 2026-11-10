@@ -1,6 +1,7 @@
 """Staging customer accounts and VPN authorization, isolated from legacy access codes."""
 import copy
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -90,6 +91,14 @@ def migrate(store):
         for statement in sql.split(';'):
             if statement.strip():
                 db.execute(statement)
+        db.execute("""CREATE TABLE IF NOT EXISTS customer_app_release (
+            slot INTEGER PRIMARY KEY CHECK(slot = 1),
+            version_code INTEGER NOT NULL,
+            version_name TEXT NOT NULL,
+            sha256 TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            apk BYTEA NOT NULL
+        )""")
         if store.postgres:
             db.execute("ALTER TABLE customer_users ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'paid' CHECK(account_type IN ('paid','trial'))")
         elif not any(column['name'] == 'account_type' for column in db.execute('PRAGMA table_info(customer_users)')):
@@ -577,6 +586,8 @@ class Customers:
 def install(app, store, peer, body, token):
     service = Customers(store)
     workers = asyncio.Semaphore(4)
+    downloads = asyncio.Semaphore(2)
+    publishing = asyncio.Lock()
     public_ops = {'login','refresh','challenge'}
     read_ops = {'profile','subscription','networks','devices','status','app-update','app-update-apk'}
     write_ops = {'password','logout','revoke-device','connect','heartbeat','disconnect','bootstrap'}
@@ -621,9 +632,7 @@ def install(app, store, peer, body, token):
                 raise Fault('Change your temporary password first', 403)
             directory = os.environ.get('TPP_CUSTOMER_UPDATE_DIR')
             if not directory:
-                if op == 'app-update':
-                    return web.json_response({'available': False}, headers={'Cache-Control': 'no-store'})
-                raise web.HTTPNotFound()
+                return await stored_update(request, op)
             try:
                 folder = Path(directory)
                 with (folder / 'latest.json').open('rb') as manifest:
@@ -650,6 +659,77 @@ def install(app, store, peer, body, token):
         async with workers:
             return web.json_response(await asyncio.to_thread(customer_operation,op,peer(request),bearer,data))
 
+    def read_release(sha=None):
+        with store.db() as db:
+            if sha is not None:
+                row = db.execute('SELECT apk FROM customer_app_release WHERE slot=1 AND sha256=?', (sha,)).fetchone()
+                return None if row is None else bytes(row['apk'])
+            row = db.execute('SELECT version_code,version_name,sha256,size FROM customer_app_release WHERE slot=1').fetchone()
+            return None if row is None else dict(row)
+
+    async def stored_update(request, op):
+        headers = {'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff'}
+        if op == 'app-update':
+            release = await asyncio.to_thread(read_release)
+            return web.json_response({'available': release is not None, **(release or {})}, headers=headers)
+        sha = request.query.get('sha256', '')
+        if not re.fullmatch(r'[0-9a-f]{64}', sha):
+            raise Fault('Check for the latest app update again.', 409)
+        async with downloads:
+            apk = await asyncio.to_thread(read_release, sha)
+            if apk is None:
+                raise Fault('Check for the latest app update again.', 409)
+            response = web.StreamResponse(headers={**headers, 'Content-Type': 'application/vnd.android.package-archive'})
+            response.content_length = len(apk)
+            await response.prepare(request)
+            for offset in range(0, len(apk), 65536):
+                await response.write(apk[offset:offset + 65536])
+            await response.write_eof()
+            return response
+
+    def save_release(code, name, sha, size, apk):
+        with store.db() as db:
+            db.execute("""INSERT INTO customer_app_release(slot,version_code,version_name,sha256,size,apk)
+                VALUES (1,?,?,?,?,?) ON CONFLICT(slot) DO UPDATE SET version_code=excluded.version_code,
+                version_name=excluded.version_name,sha256=excluded.sha256,size=excluded.size,apk=excluded.apk
+                WHERE customer_app_release.version_code < excluded.version_code""", (code,name,sha,size,apk))
+            row = db.execute('SELECT version_code,sha256 FROM customer_app_release WHERE slot=1').fetchone()
+            if row['version_code'] != code or row['sha256'] != sha:
+                raise Fault('An equal or newer release is already published.', 409)
+
+    async def publish_update(request):
+        raw = os.environ.get('TPP_UPDATE_PUBLISH', '')
+        if not raw:
+            raise web.HTTPNotFound()
+        release = json.loads(raw)
+        bearer = token(request)
+        if not secrets.compare_digest(hashlib.sha256(bearer.encode()).hexdigest(), release['token_sha256']):
+            raise Fault('Update publisher authorization required', 401)
+        size, sha, code, name = (release[k] for k in ('size','sha256','version_code','version_name'))
+        if (type(size) is not int or not 10000 <= size <= 100 * 1024 * 1024
+                or type(code) is not int or not 1 <= code <= 2100000000
+                or not re.fullmatch(r'[A-Za-z0-9._+-]{1,60}', name)
+                or not re.fullmatch(r'[0-9a-f]{64}', sha)
+                or request.content_length != size):
+            raise Fault('Update metadata or content length is invalid', 400)
+        async with publishing:
+            current = await asyncio.to_thread(read_release)
+            if current and current['version_code'] >= code:
+                if current['version_code'] == code and current['sha256'] == sha:
+                    return web.json_response({'published': True, 'version_code': code})
+                raise Fault('An equal or newer release is already published.', 409)
+            apk = bytearray()
+            check = hashlib.sha256()
+            async for chunk in request.content.iter_chunked(65536):
+                if len(apk) + len(chunk) > size:
+                    raise Fault('Update size mismatch', 400)
+                apk.extend(chunk)
+                check.update(chunk)
+            if len(apk) != size or check.hexdigest() != sha:
+                raise Fault('Update checksum mismatch', 400)
+            await asyncio.to_thread(save_release, code, name, sha, size, bytes(apk))
+        return web.json_response({'published': True, 'version_code': code}, status=201)
+
     async def admin_api(request):
         op = request.match_info['op']
         allowed = {'overview','users','user'} if request.method=='GET' else {'create','update','reset','revoke-device','network','plan','lifecycle'}
@@ -669,6 +749,7 @@ def install(app, store, peer, body, token):
     service_limit = Limiter()
     app.router.add_get('/v2/customer/{op}',customer_api)
     app.router.add_post('/v2/customer/{op}',customer_api)
+    app.router.add_put('/v2/customer/app-update-publish', publish_update)
     app.router.add_get('/admin/customers/',admin_page)
     app.router.add_get('/admin/api/customers/{op}',admin_api)
     app.router.add_post('/admin/api/customers/{op}',admin_api)
