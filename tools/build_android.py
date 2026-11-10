@@ -4,7 +4,6 @@
 Produces a DEBUG-SIGNED pilot, not a store release. Requires the pinned native Xray AAR.
 """
 import argparse
-import json
 import sys
 import os
 from pathlib import Path
@@ -54,11 +53,8 @@ def main():
         sys.path.insert(0, str(ROOT))
         from backend.xray import normalize
         try:
-            profile = json.loads(raw)
-            for outbound in profile['outbounds']:
-                if outbound.get('protocol') == 'vless':
-                    outbound['streamSettings']['tlsSettings']['allowInsecure'] = False
-            normalized = normalize(profile)[0]
+            # The private staging profile may explicitly opt into legacy test TLS.
+            normalized = normalize(raw, allow_insecure=True)[0]
             if normalized['outbounds'][0]['protocol'] != 'vless':
                 raise ValueError()
         except Exception:
@@ -66,7 +62,7 @@ def main():
         assets = build / 'assets'
         shutil.copytree(source / 'assets', assets)
         (assets / 'mobile-vless.json').write_text(json.dumps(normalized), encoding='utf-8')
-    version_code = '50' if args.customer_test else '18'
+    version_code = '51' if args.customer_test else '18'
     version_name = '0.2.13' if args.customer_test else '0.1.17-pilot'
     root = manifest.getroot()
     root.set('package', app_id)
