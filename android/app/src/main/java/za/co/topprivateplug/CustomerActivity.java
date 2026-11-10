@@ -435,7 +435,7 @@ public final class CustomerActivity extends Activity {
     }
 
     private void prepare() {
-        if ("Cell C".equals(carrier) && vault.savedCustomerProfile(carrier) == null) {
+        if ("Cell C".equals(carrier)) {
             EditText code = new EditText(this);
             code.setHint("Cell C code");
             code.setSingleLine(true);
@@ -455,11 +455,11 @@ public final class CustomerActivity extends Activity {
                         } finally {
                             api.call("disconnect", new JSONObject().put("lease", result.getString("lease")));
                         }
-                    }, () -> message.setText("Cell C is saved. Tap Connect when ready."));
+                    }, () -> requestVpnPermission("Cell C"));
                 }).show();
             return;
         }
-        if (vault.savedCustomerProfile(carrier) == null) {
+        if (!Vault.usesBundledProfile(carrier)) {
             message.setText("Use working internet and tap Refresh account to save this profile.");
             return;
         }
@@ -508,8 +508,6 @@ public final class CustomerActivity extends Activity {
         connect.setVisibility(idle ? View.VISIBLE : View.GONE);
         disconnect.setVisibility(idle ? View.GONE : View.VISIBLE);
         disconnect.setText("Disconnecting".equals(state) ? "DISCONNECTING…" : active ? "DISCONNECT" : "CANCEL");
-        boolean needsCellSetup = "Cell C".equals(carrier) && vault.savedCustomerProfile(carrier) == null;
-        connect.setText(needsCellSetup ? "SAVE CELL C PROFILE" : "CONNECT");
         connect.setEnabled(!busy && selectedAvailable());
         connect.setAlpha(connect.isEnabled() ? 1f : .55f);
         if (idle && !selectedAvailable()) tunnel.append("\n" + carrier + " profile unavailable");
@@ -533,8 +531,7 @@ public final class CustomerActivity extends Activity {
         account = api.call("profile", null);
         if (account.optInt("must_change") != 0) return;
         networks = api.call("networks", null).getJSONArray("networks");
-        JSONObject profiles = api.bootstrapProfiles();
-        vault.saveCustomerCatalog(marker, account, networks, profiles);
+        vault.saveCustomerCatalog(marker, account, networks, new JSONObject());
     }
 
     private interface Work { void run() throws Exception; }
