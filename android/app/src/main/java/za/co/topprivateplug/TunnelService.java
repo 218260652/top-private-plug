@@ -159,8 +159,8 @@ public final class TunnelService extends VpnService {
                 controlPort=reservation.getLocalPort();
             }
             if (vault.staging) {
-                JSONObject config = vault.savedCustomerProfile(profileId);
-                if (config == null || !accessToken.equals(sessionMarker(vault))) {
+                JSONObject config = vault.customerTunnelProfile(profileId);
+                if (config == null || accessToken.isEmpty() || !accessToken.equals(sessionMarker(vault))) {
                     ConnectionReport.stage(ConnectionReport.Stage.NO_SAVED_PROFILE);
                     throw new Exception("Use working internet to save this profile first.");
                 }
