@@ -38,6 +38,9 @@ final class UpdateController {
         if(total!=size||!hex(digest.digest()).equals(selected.getString("sha256")))throw new IOException("Update checksum mismatch.");verifyApk(partial,selected);if(apk().exists()&&!apk().delete())throw new IOException("Cannot replace staged update.");if(!partial.renameTo(apk()))throw new IOException("Cannot stage update.");release=selected;a.prefs.edit().putString("downloaded_sha",selected.getString("sha256")).apply();status="Update verified. Tap Install downloaded update.";a.handler.post(()->{if(!closed)install();});
     }catch(Exception error){partial.delete();status="The update could not be downloaded or verified. Please retry. Your installed app is unchanged.";}finally{if(c!=null)c.disconnect();downloading=false;paint();}});}
     void verifyApk(File file,JSONObject selected)throws Exception{
+        verifyApk(a, file, selected);
+    }
+    static void verifyApk(Activity a, File file, JSONObject selected)throws Exception{
         PackageManager pm=a.getPackageManager();int flag=Build.VERSION.SDK_INT>=28?PackageManager.GET_SIGNING_CERTIFICATES:PackageManager.GET_SIGNATURES;
         PackageInfo archive=pm.getPackageArchiveInfo(file.getAbsolutePath(),flag),current=pm.getPackageInfo(a.getPackageName(),flag);
         if(archive==null||!a.getPackageName().equals(archive.packageName)||archive.versionCode!=selected.getInt("version_code")||archive.versionCode<=current.versionCode)throw new Exception("Wrong package/version.");

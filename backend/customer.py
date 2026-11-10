@@ -546,7 +546,7 @@ def install(app, store, peer, body, token):
     service = Customers(store)
     workers = asyncio.Semaphore(4)
     public_ops = {'login','refresh','challenge'}
-    read_ops = {'profile','subscription','networks','devices','status'}
+    read_ops = {'profile','subscription','networks','devices','status','app-update','app-update-apk'}
     write_ops = {'password','logout','revoke-device','connect','heartbeat','disconnect','bootstrap'}
     purposes = {'customer-' + op for op in ('login','refresh','password','device','connect')}
 
@@ -582,6 +582,39 @@ def install(app, store, peer, body, token):
                 raise Fault('Device proof required',401)
         if op not in public_ops:
             service_limit.check(('customer-api',digest(bearer)),120)
+        if op in ('app-update', 'app-update-apk'):
+            async with workers:
+                account = await asyncio.to_thread(service.customer, 'profile', bearer, {})
+            if account.get('must_change'):
+                raise Fault('Change your temporary password first', 403)
+            directory = os.environ.get('TPP_CUSTOMER_UPDATE_DIR')
+            if not directory:
+                if op == 'app-update':
+                    return web.json_response({'available': False}, headers={'Cache-Control': 'no-store'})
+                raise web.HTTPNotFound()
+            try:
+                folder = Path(directory)
+                with (folder / 'latest.json').open('rb') as manifest:
+                    release = json.loads(manifest.read(4097))
+                code, name, sha, size = (release[k] for k in ('version_code', 'version_name', 'sha256', 'size'))
+                if (type(code) is not int or not 1 <= code <= 2100000000 or not isinstance(name, str)
+                        or not re.fullmatch(r'[A-Za-z0-9._+-]{1,60}', name)
+                        or not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{64}', sha)
+                        or type(size) is not int or not 10000 <= size <= 100 * 1024 * 1024):
+                    raise ValueError()
+                apk = folder / (sha + '.apk')
+                if not apk.is_file() or apk.stat().st_size != size:
+                    raise ValueError()
+            except (OSError, KeyError, ValueError, TypeError):
+                raise Fault('App update temporarily unavailable', 503) from None
+            headers = {'Cache-Control': 'private, no-store'}
+            if op == 'app-update':
+                return web.json_response({'available': True, 'version_code': code, 'version_name': name,
+                                          'sha256': sha, 'size': size}, headers=headers)
+            if request.query.get('sha256') != sha:
+                raise Fault('A newer update is available. Check again.', 409)
+            headers['Content-Type'] = 'application/vnd.android.package-archive'
+            return web.FileResponse(apk, headers=headers)
         async with workers:
             return web.json_response(await asyncio.to_thread(customer_operation,op,peer(request),bearer,data))
 
