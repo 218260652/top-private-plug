@@ -4,6 +4,7 @@
 Produces a DEBUG-SIGNED pilot, not a store release. Requires the pinned native Xray AAR.
 """
 import argparse
+import json
 import sys
 import os
 from pathlib import Path
