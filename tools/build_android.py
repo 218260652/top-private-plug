@@ -63,7 +63,7 @@ def main():
         assets = build / 'assets'
         shutil.copytree(source / 'assets', assets)
         (assets / 'mobile-vless.json').write_text(json.dumps(normalized), encoding='utf-8')
-    version_code = '52' if args.customer_test else '18'
+    version_code = '53' if args.customer_test else '18'
     version_name = '0.2.13' if args.customer_test else '0.1.17-pilot'
     root = manifest.getroot()
     root.set('package', app_id)
@@ -73,10 +73,7 @@ def main():
         application.set(android_attr + 'label', 'Top Private Plug')
         application.find('activity').set(android_attr + 'name', namespace + '.CustomerActivity')
         application.find('service').set(android_attr + 'name', namespace + '.TunnelService')
-        application.remove(application.find('provider'))
-        for permission in root.findall('uses-permission'):
-            if permission.get(android_attr + 'name') == 'android.permission.REQUEST_INSTALL_PACKAGES':
-                root.remove(permission)
+        application.find('provider').set(android_attr + 'authorities', app_id + '.updates')
     manifest.write(build / 'AndroidManifest.xml', encoding='utf-8', xml_declaration=True)
     run(tools / 'aapt2', 'link', '-o', build / 'base.apk', '--manifest', build / 'AndroidManifest.xml',
         '-I', android, '--java', build / 'gen', '--custom-package', namespace, '--min-sdk-version', '26', '--target-sdk-version', '38',
