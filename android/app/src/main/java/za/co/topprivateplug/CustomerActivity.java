@@ -497,7 +497,8 @@ public final class CustomerActivity extends Activity {
         if (tunnel == null) return;
         String state = TunnelService.state;
         boolean idle = "Disconnected".equals(state);
-        long elapsed = "Connected".equals(state) ? Math.max(0, SystemClock.elapsedRealtime() - TunnelService.connectedAt) / 1000 : 0;
+        boolean active = "Connected".equals(state) || TunnelService.TUNNEL_RUNNING.equals(state);
+        long elapsed = active ? Math.max(0, SystemClock.elapsedRealtime() - TunnelService.connectedAt) / 1000 : 0;
         tunnel.setText(state + " · " + String.format(Locale.ROOT, "%02d:%02d:%02d", elapsed / 3600, (elapsed / 60) % 60, elapsed % 60)
             + "\n" + TunnelService.detail + "\nSelected: " + carrier);
         up.setText(android.text.format.Formatter.formatShortFileSize(this, TunnelService.uploaded));
@@ -506,7 +507,7 @@ public final class CustomerActivity extends Activity {
         tunnel.setTextColor("Connected".equals(state) ? 0xff68ec78 : MUTED);
         connect.setVisibility(idle ? View.VISIBLE : View.GONE);
         disconnect.setVisibility(idle ? View.GONE : View.VISIBLE);
-        disconnect.setText("Disconnecting".equals(state) ? "DISCONNECTING…" : "Connected".equals(state) ? "DISCONNECT" : "CANCEL");
+        disconnect.setText("Disconnecting".equals(state) ? "DISCONNECTING…" : active ? "DISCONNECT" : "CANCEL");
         boolean needsCellSetup = "Cell C".equals(carrier) && vault.savedCustomerProfile(carrier) == null;
         connect.setText(needsCellSetup ? "SAVE CELL C PROFILE" : "CONNECT");
         connect.setEnabled(!busy && selectedAvailable());
