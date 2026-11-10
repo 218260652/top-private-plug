@@ -57,6 +57,15 @@ final class TunnelConfig {
         ConnectionReport.stage(ConnectionReport.Stage.ENDPOINT_DNS_OK);
     }
 
+    static void useCloudflareHttpsDns(JSONObject config) throws Exception {
+        JSONArray servers = config.getJSONObject("dns").getJSONArray("servers");
+        for (int i = 0; i < servers.length(); i++) {
+            if ("1.1.1.1".equals(servers.optString(i))) {
+                servers.put(i, "https://1.1.1.1/dns-query");
+            }
+        }
+    }
+
     static JSONObject control(JSONObject source, String origin, int port, boolean bootstrap) throws Exception {
         return control(source, origin, port, bootstrap, false);
     }
