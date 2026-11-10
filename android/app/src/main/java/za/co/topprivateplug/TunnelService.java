@@ -275,7 +275,8 @@ public final class TunnelService extends VpnService {
             }
             showNotification(detail);
         }
-        if (staging) verifyStagingTraffic(engine, unverifiedTls);
+        long nextTrafficCheck = staging ? android.os.SystemClock.elapsedRealtime() : Long.MAX_VALUE;
+        int trafficRetries = 0;
         TrafficTotals totals = new TrafficTotals();
         long nextHeartbeat = 0;
         while (running.get() && engine.running()) {
@@ -283,6 +284,16 @@ public final class TunnelService extends VpnService {
                 if (!running.get()) break;
                 totals.add(engine.traffic(), "trojan");
                 uploaded = totals.up; downloaded = totals.down;
+            }
+            if (staging && android.os.SystemClock.elapsedRealtime() >= nextTrafficCheck) {
+                if (trafficRetries != 0) engine.resetProbeDiagnostics();
+                boolean rateLimited = verifyStagingTraffic(engine, unverifiedTls);
+                nextTrafficCheck = Long.MAX_VALUE;
+                if (rateLimited && running.get() && trafficRetries < 3) {
+                    long delay = 60_000L << trafficRetries++;
+                    nextTrafficCheck = android.os.SystemClock.elapsedRealtime() + delay;
+                    ConnectionReport.stage(ConnectionReport.Stage.TRAFFIC_CHECK_COOLDOWN);
+                }
             }
             if (api == null || android.os.SystemClock.elapsedRealtime() < nextHeartbeat) {
                 try { Thread.sleep(1000); } catch (InterruptedException cancelled) { break; }
@@ -307,13 +318,13 @@ public final class TunnelService extends VpnService {
         }
         if (running.get()) throw new RetryPolicy.TransportFailure("The Xray engine stopped unexpectedly.");
     }
-    private void verifyStagingTraffic(XrayEngine engine, boolean unverifiedTls) {
-        if (!running.get()) return;
+    private boolean verifyStagingTraffic(XrayEngine engine, boolean unverifiedTls) {
+        if (!running.get()) return false;
         ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
         try {
             long delay = httpsProbe(engine, "");
             synchronized (this) {
-                if (!running.get()) return;
+                if (!running.get()) return false;
                 latency = delay;
                 state = "Connected";
                 detail = unverifiedTls ? "Traffic verified. Test profile skips VLESS server certificate verification."
@@ -322,28 +333,38 @@ public final class TunnelService extends VpnService {
                 ConnectionReport.stage(ConnectionReport.Stage.CONNECTED);
                 showNotification(detail);
             }
+            return false;
         } catch (Exception error) {
-            if (!running.get()) return;
+            if (!running.get()) return false;
             ConnectionReport.trafficProbeFailed(false, error);
-            engine.resetProbeDiagnostics();
-            ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_IP_HTTPS);
-            String result;
-            try {
-                httpsProbe(engine, "https://1.1.1.1/cdn-cgi/trace");
-                if (!running.get()) return;
-                ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_IP_HTTPS_OK);
-                result = "The VPN reached a test IP, but the website check failed.";
-            } catch (Exception probeError) {
-                if (!running.get()) return;
-                ConnectionReport.trafficProbeFailed(true, probeError);
-                result = "The VPN started, but the traffic checks failed. See Connection report.";
-            }
-            synchronized (this) {
-                if (!running.get()) return;
-                detail = unverifiedTls ? result + " Test profile skips VLESS server certificate verification." : result;
-                showNotification(detail);
-            }
+            if (isRateLimited(error)) return true;
         }
+
+        if (!running.get()) return false;
+        engine.resetProbeDiagnostics();
+        ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_IP_HTTPS);
+        String result;
+        try {
+            httpsProbe(engine, "https://1.1.1.1/cdn-cgi/trace");
+            if (!running.get()) return false;
+            ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_IP_HTTPS_OK);
+            result = "The VPN reached a test IP, but the website check failed.";
+        } catch (Exception error) {
+            if (!running.get()) return false;
+            ConnectionReport.trafficProbeFailed(true, error);
+            if (isRateLimited(error)) return true;
+            result = "The VPN started, but the traffic checks failed. See Connection report.";
+        }
+        synchronized (this) {
+            if (!running.get()) return false;
+            detail = unverifiedTls ? result + " Test profile skips VLESS server certificate verification." : result;
+            showNotification(detail);
+        }
+        return false;
+    }
+
+    private static boolean isRateLimited(Exception error) {
+        return error instanceof ProxyFailure && ((ProxyFailure) error).status == 429;
     }
 
     private long leaseMillis(JSONObject response) {
