@@ -216,9 +216,10 @@ public final class TunnelService extends VpnService {
         if (!running.get()) return;
         JSONObject config = api == null ? new JSONObject(source.toString())
             : TunnelConfig.control(source, new Vault(this).endpoint(), controlPort, false);
-        boolean mtnOrTelkom = api == null && ("MTN".equals(activeProfile) || "Telkom".equals(activeProfile));
-        boolean proxied = mtnOrTelkom && TunnelConfig.hasHttpUpstream(config);
-        if (mtnOrTelkom) {
+        boolean staging = api == null;
+        if (staging) {
+            TunnelConfig.useCloudflareHttpsDns(config);
+            boolean proxied = TunnelConfig.hasHttpUpstream(config);
             ConnectionReport.stage(proxied ? ConnectionReport.Stage.HTTP_UPSTREAM_ROUTE
                 : ConnectionReport.Stage.DIRECT_ENDPOINT_ROUTE);
             if (!proxied) TunnelConfig.resolveDirectEndpoint(config, this);
@@ -243,7 +244,7 @@ public final class TunnelService extends VpnService {
             engine.start(config.toString(), tun.getFd());
             if (api != null) Api.throughTunnel(new Vault(this).endpoint(), controlPort, engine::clearUpstreamStatus);
         }
-        if (!mtnOrTelkom) {
+        if (!staging) {
             progress("Checking HTTPS traffic through the Xray tunnel");
             ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
             try {
@@ -259,7 +260,7 @@ public final class TunnelService extends VpnService {
             if (!running.get()) return;
             if (api == null) leaseDeadline = Long.MAX_VALUE;
             connectedAt=android.os.SystemClock.elapsedRealtime();
-            if (mtnOrTelkom) {
+            if (staging) {
                 state = TUNNEL_RUNNING;
                 ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_STARTED_UNVERIFIED);
                 detail = "VPN interface is active. Internet access has not been verified.";
@@ -270,6 +271,7 @@ public final class TunnelService extends VpnService {
             }
             showNotification(detail);
         }
+        if (staging) verifyStagingTraffic(engine);
         TrafficTotals totals = new TrafficTotals();
         long nextHeartbeat = 0;
         while (running.get() && engine.running()) {
@@ -301,6 +303,44 @@ public final class TunnelService extends VpnService {
         }
         if (running.get()) throw new RetryPolicy.TransportFailure("The Xray engine stopped unexpectedly.");
     }
+    private void verifyStagingTraffic(XrayEngine engine) {
+        if (!running.get()) return;
+        ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS);
+        try {
+            long delay = httpsProbe(engine, "");
+            synchronized (this) {
+                if (!running.get()) return;
+                latency = delay;
+                state = "Connected";
+                detail = "Internet traffic verified through the VPN.";
+                ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_HTTPS_OK);
+                ConnectionReport.stage(ConnectionReport.Stage.CONNECTED);
+                showNotification(detail);
+            }
+        } catch (Exception error) {
+            if (!running.get()) return;
+            ConnectionReport.trafficProbeFailed(false, error);
+            engine.resetProbeDiagnostics();
+            ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_IP_HTTPS);
+            String result;
+            try {
+                httpsProbe(engine, "https://1.1.1.1/cdn-cgi/trace");
+                if (!running.get()) return;
+                ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_IP_HTTPS_OK);
+                result = "The VPN reached a test IP, but the website check failed.";
+            } catch (Exception probeError) {
+                if (!running.get()) return;
+                ConnectionReport.trafficProbeFailed(true, probeError);
+                result = "The VPN started, but the traffic checks failed. See Connection report.";
+            }
+            synchronized (this) {
+                if (!running.get()) return;
+                detail = result;
+                showNotification(detail);
+            }
+        }
+    }
+
     private long leaseMillis(JSONObject response) {
         return Math.max(0, Math.min(30, response.optInt("lease_seconds", 30))) * 1000L;
     }
