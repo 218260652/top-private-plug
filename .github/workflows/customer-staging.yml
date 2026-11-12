@@ -2,7 +2,7 @@ name: Customer staging checks and test APK
 
 on:
   push:
-    branches: [develop/customer-auth-staging, develop/cell-c-code]
+    branches: [develop/customer-auth-staging, develop/cell-c-code, fix/customer-update-provider-startup]
   pull_request:
     branches: [develop/cell-c-code]
   workflow_dispatch:
@@ -20,6 +20,7 @@ jobs:
       github.repository == '218260652/top-private-plug' &&
       (github.ref == 'refs/heads/develop/customer-auth-staging' ||
        github.ref == 'refs/heads/develop/cell-c-code' ||
+       github.ref == 'refs/heads/fix/customer-update-provider-startup' ||
        (github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-24.04
