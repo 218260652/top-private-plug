@@ -100,42 +100,11 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump xmltree --file AndroidManifest.xml "$apk" | grep -F '"za.co.topprivateplug.UpdateProvider"'
           git rev-parse HEAD >> APK-METADATA.txt
           sha256sum "$apk" | tee SHA256SUMS
-      - name: Encrypt signed APK for private delivery
-        run: |
-          cat > "$RUNNER_TEMP/build53-recipient.pem" <<'PEM'
-          -----BEGIN CERTIFICATE-----
-          MIIEOzCCAqOgAwIBAgIUUArmEiaHNs1JPoriYRbv1K4Is/swDQYJKoZIhvcNAQEL
-          BQAwLTErMCkGA1UEAwwiVG9wIFByaXZhdGUgUGx1ZyBCdWlsZCA1MyBkZWxpdmVy
-          eTAeFw0yNjExMTAwNjM1MzNaFw0yNjEyMTAwNjM1MzNaMC0xKzApBgNVBAMMIlRv
-          cCBQcml2YXRlIFBsdWcgQnVpbGQgNTMgZGVsaXZlcnkwggGiMA0GCSqGSIb3DQEB
-          AQUAA4IBjwAwggGKAoIBgQCyi2tmlFbbDuwnmxIVepVxiyCkYLHm2ajbDXs2IPWP
-          foPlSXuLRRFwdKHE3HKxAo2DJEstdQy4snAyRfb5WrPwtyg698L2E3AmezKhgeE5
-          ApYzNQ20rX4msd/x42Z4O5EGTOyCxfg/x5YjnymxoBzv9eoYUcKQT8I2Wc0nKHYM
-          tjryUHK4jDLs2DGrXZ4GBQ9/GtPLZsgOwv5NSg81T58tMXD/CZFxM1t8AVFt8fMe
-          TiCcPQVR23GA6h+yjr764WfCrwvzz+u4UWusYdZz2l5arRP01Tx0YsI5wrj8qxUu
-          zUKlXPKdhmR1KtSu9I8Wui3HUWhWjWkjwvTDbkJqxO8So0f8wqhcs32/L+aA3zIt
-          BbOPpQ159XLNUgKZ/fO0vYgjqUZiTWmLXLh3z9cHRu/bb6MY3koM6LYjzmbAeORQ
-          EuNL1gHAPM63qkJMsjuLHa4Wz+5qU2V+aC5Fq9+k9yyjPZ5dCETQWNIiNAVwJbju
-          y3GX3ruHAJAYnF+qS2NgCrsCAwEAAaNTMFEwHQYDVR0OBBYEFAvSVFZlJfPlQYsY
-          bri0aA0VAFCMMB8GA1UdIwQYMBaAFAvSVFZlJfPlQYsYbri0aA0VAFCMMA8GA1Ud
-          EwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggGBAFpe6undmNW00lIboNfNNsl8
-          ceJnC/JRGWWLXLhfjC/5HaEsab04ebtpNLXCNZ5VxSHT1tt36UKui9l8G2c1PnDZ
-          ax4h9SVEpjd6yDXSNGY6Ywg5AE4g0sIp9Aw1nDuiZX6sWJ0qRf4yymk0AdFMF3A6
-          KcEkf9R7yyqDiNt8vfFobul6Q+z6E+oaPbW9qk7Y3efjUSJITh3hsIcXVg3a0A6X
-          zORPiBDjj6AjciKvCSPTY6lhxspf8slCxlUNrysANIk87tBdUzBnf/mfHovhcQdE
-          05tzA36o3R960fwVNOqdFP3sqcajEjVR8UcQGjsaLnuc2JCLLUJgfkcdCUxrban9
-          yLV111ezT8mZ2JSQEhd2erpA6Hrj5CKD2jY9Rc8LCq+gXkXzOYM71JJNBVzb6kCT
-          rR2066AgiZdX/jrPpZPNm18+p2FBP5iMpKxNntKsJdh36AHix2Nnv/HG7CuN0CUD
-          1aEmhNLWtNqcanj0m6vi+6on6T+xXuoiUq4GXVSv4A==
-          -----END CERTIFICATE-----
-          PEM
-          openssl cms -encrypt -binary -aes-256-gcm -outform DER \
-            -in Top-Private-Plug-0.2.13.apk -out Build-54.apk.cms "$RUNNER_TEMP/build53-recipient.pem"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Top-Private-Plug-Build-54-Encrypted
+          name: Top-Private-Plug-Build-54-Installable
           path: |
-            Build-54.apk.cms
+            Top-Private-Plug-0.2.13.apk
             APK-METADATA.txt
             SHA256SUMS
           if-no-files-found: error
