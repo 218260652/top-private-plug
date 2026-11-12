@@ -4,6 +4,8 @@
 Produces a DEBUG-SIGNED pilot, not a store release. Requires the pinned native Xray AAR.
 """
 import argparse
+import json
+import sys
 import os
 from pathlib import Path
 import shutil
@@ -44,7 +46,24 @@ def main():
     manifest = ET.parse(source / 'AndroidManifest.xml')
     namespace = 'za.co.topprivateplug'
     app_id = namespace + ('.test' if args.customer_test else '')
-    version_code = '39' if args.customer_test else '18'
+    assets = source / 'assets'
+    if args.customer_test:
+        raw = os.environ.get('TPP_BUNDLED_MOBILE_VLESS')
+        if not raw:
+            raise SystemExit('TPP_BUNDLED_MOBILE_VLESS is required for the staging APK')
+        sys.path.insert(0, str(ROOT))
+        from backend.xray import normalize
+        try:
+            # The private staging profile may explicitly opt into legacy test TLS.
+            normalized = normalize(raw, allow_insecure=True)[0]
+            if normalized['outbounds'][0]['protocol'] != 'vless':
+                raise ValueError()
+        except Exception:
+            raise SystemExit('Invalid bundled VLESS profile') from None
+        assets = build / 'assets'
+        shutil.copytree(source / 'assets', assets)
+        (assets / 'mobile-vless.json').write_text(json.dumps(normalized), encoding='utf-8')
+    version_code = '54' if args.customer_test else '18'
     version_name = '0.2.13' if args.customer_test else '0.1.17-pilot'
     root = manifest.getroot()
     root.set('package', app_id)
@@ -54,14 +73,11 @@ def main():
         application.set(android_attr + 'label', 'Top Private Plug')
         application.find('activity').set(android_attr + 'name', namespace + '.CustomerActivity')
         application.find('service').set(android_attr + 'name', namespace + '.TunnelService')
-        application.remove(application.find('provider'))
-        for permission in root.findall('uses-permission'):
-            if permission.get(android_attr + 'name') == 'android.permission.REQUEST_INSTALL_PACKAGES':
-                root.remove(permission)
+        application.find('provider').set(android_attr + 'authorities', app_id + '.updates')
     manifest.write(build / 'AndroidManifest.xml', encoding='utf-8', xml_declaration=True)
     run(tools / 'aapt2', 'link', '-o', build / 'base.apk', '--manifest', build / 'AndroidManifest.xml',
         '-I', android, '--java', build / 'gen', '--custom-package', namespace, '--min-sdk-version', '26', '--target-sdk-version', '38',
-        '-A', source / 'assets', '--version-code', version_code, '--version-name', version_name, '--debug-mode', build / 'res.zip')
+        '-A', assets, '--version-code', version_code, '--version-name', version_name, '--debug-mode', build / 'res.zip')
     aar = ROOT / 'android' / 'app' / 'libs' / 'libv2ray.aar'
     if not aar.exists():
         raise SystemExit('Build the pinned libv2ray.aar first; see tools/build_xray.sh')

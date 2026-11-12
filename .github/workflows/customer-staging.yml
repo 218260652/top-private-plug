@@ -2,7 +2,9 @@ name: Customer staging checks and test APK
 
 on:
   push:
-    branches: [develop/customer-auth-staging, develop/cell-c-code]
+    branches: [develop/customer-auth-staging, develop/cell-c-code, fix/customer-update-provider-startup]
+  pull_request:
+    branches: [develop/cell-c-code]
   workflow_dispatch:
 
 permissions:
@@ -14,7 +16,13 @@ concurrency:
 
 jobs:
   test-and-build:
-    if: (github.ref == 'refs/heads/develop/customer-auth-staging' || github.ref == 'refs/heads/develop/cell-c-code') && github.repository == '218260652/top-private-plug'
+    if: >-
+      github.repository == '218260652/top-private-plug' &&
+      (github.ref == 'refs/heads/develop/customer-auth-staging' ||
+       github.ref == 'refs/heads/develop/cell-c-code' ||
+       github.ref == 'refs/heads/fix/customer-update-provider-startup' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     services:
@@ -32,6 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
@@ -77,31 +86,26 @@ jobs:
           path: .local-signing/customer-test
           key: tpp-customer-test-signing-v1
       - name: Build and verify signed test APK
+        env:
+          TPP_BUNDLED_MOBILE_VLESS: ${{ secrets.TPP_BUNDLED_MOBILE_VLESS }}
         run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            test -f .local-signing/customer-test/debug.keystore
+          fi
           python tools/build_android.py --customer-test
           apk=Top-Private-Plug-0.2.13.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$apk" > APK-METADATA.txt
-          grep -F "package: name='za.co.topprivateplug.test' versionCode='39' versionName='0.2.13'" APK-METADATA.txt
+          grep -F "package: name='za.co.topprivateplug.test' versionCode='54' versionName='0.2.13'" APK-METADATA.txt
           grep -F "application-label:'Top Private Plug'" APK-METADATA.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump xmltree --file AndroidManifest.xml "$apk" | grep -F '"za.co.topprivateplug.UpdateProvider"'
           git rev-parse HEAD >> APK-METADATA.txt
           sha256sum "$apk" | tee SHA256SUMS
-      - id: artifact
-        continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Top-Private-Plug-Test-APK
+          name: Top-Private-Plug-Build-54-Installable
           path: |
             Top-Private-Plug-0.2.13.apk
             APK-METADATA.txt
             SHA256SUMS
           if-no-files-found: error
-          retention-days: 30
-
-      - name: Publish private staging download if Actions storage is unavailable
-        if: steps.artifact.outcome == 'failure'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          test "$(gh repo view --json visibility --jq .visibility)" = PRIVATE
-          tag="customer-update-0.2.13-${GITHUB_SHA:0:12}-${GITHUB_RUN_ATTEMPT}"
-          gh release create "$tag" --target "$GITHUB_SHA" --prerelease --latest=false             --title "Top Private Plug 0.2.13"             --notes "Private staging APK. Requires the isolated test backend. See APK-METADATA.txt and SHA256SUMS."             Top-Private-Plug-0.2.13.apk APK-METADATA.txt SHA256SUMS
+          retention-days: 1
