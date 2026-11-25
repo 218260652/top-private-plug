@@ -1,0 +1,4 @@
+<resources>
+    <!-- Set the owner-provided HTTPS invite before distribution. -->
+    <string name="whatsapp_group_url" translatable="false"></string>
+</resources>

@@ -107,31 +107,31 @@ jobs:
           adb emu kill
       - name: Package rebuild sources and licenses
         run: |
-          tar --exclude=.git --exclude=.local-signing --exclude='*.aar' --exclude='*.apk' --exclude='android/build' --exclude='android/ui-build' --exclude='ui-screenshots' --exclude='*.zip' --exclude='__pycache__' -czf /tmp/Top-private-Plug-rebuild-source.tar.gz .
-          cp /tmp/Top-private-Plug-rebuild-source.tar.gz .
+          tar --exclude=.git --exclude=.local-signing --exclude='*.aar' --exclude='*.apk' --exclude='android/build' --exclude='android/ui-build' --exclude='ui-screenshots' --exclude='*.zip' --exclude='__pycache__' -czf /tmp/Salvation-Mahumane-VPN-rebuild-source.tar.gz .
+          cp /tmp/Salvation-Mahumane-VPN-rebuild-source.tar.gz .
       - name: Publish verified pilot as a GitHub Release
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          tag="pilot-0.2.14-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          zip -j Top-private-Plug-0.2.14-pilot.zip Top-private-Plug-0.2.14-pilot.apk
-          sha256sum Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.2.14-ui-screenshots.zip > SHA256SUMS
-          gh release create "$tag" --target "$SOURCE_SHA" --title "Top private Plug 0.2.14" --notes "0.2.14 targets the VLESS/Xray connection and reconnect failures on MTN and Telkom. IPv6 stays routed into the tunnel but now fails fast, so Android falls back to IPv4 instead of stalling on AAAA answers a supplier server cannot reach. A second DNS resolver is advertised to the tunnel. A 409 lease conflict is treated as recoverable and retried after the lease cooldown instead of ending the connection, the server lease is released before cleanup, and a network change now triggers an immediate reconnect. Saving or refreshing a profile only needs a usable internet connection rather than Android's delayed VALIDATED flag. Account control traffic follows the profile's real outbound tag. The logo, colours, login and dashboard are unchanged. Physical-device carrier validation is still required."
-          gh release upload "$tag" Top-private-Plug-*-pilot.apk Top-private-Plug-*-pilot.zip Top-private-Plug-rebuild-source.tar.gz Top-private-Plug-0.2.14-ui-screenshots.zip SHA256SUMS
+          tag="salvation-0.2.14-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          zip -j Salvation-Mahumane-VPN-0.2.14-pilot.zip Salvation-Mahumane-VPN-0.2.14-pilot.apk
+          sha256sum Salvation-Mahumane-VPN-*-pilot.apk Salvation-Mahumane-VPN-*-pilot.zip Salvation-Mahumane-VPN-rebuild-source.tar.gz Salvation-Mahumane-VPN-0.2.14-ui-screenshots.zip > SHA256SUMS
+          gh release create "$tag" --target "$SOURCE_SHA" --title "Salvation Mahumane VPN 0.2.14" --notes "Salvation Mahumane VPN black-and-gold activation and home interfaces with live account and traffic values. Separate Android package installs alongside Top Private Plug. Existing activation-code backend and paid/trial device limits retained. WhatsApp group destination and branded update service remain to be configured. Debug-signed pilot; physical-device connectivity verification required."
+          gh release upload "$tag" Salvation-Mahumane-VPN-*-pilot.apk Salvation-Mahumane-VPN-*-pilot.zip Salvation-Mahumane-VPN-rebuild-source.tar.gz Salvation-Mahumane-VPN-0.2.14-ui-screenshots.zip SHA256SUMS
           gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Top-private-Plug-pilot-${{ github.run_number }}
+          name: Salvation-Mahumane-VPN-pilot-${{ github.run_number }}
           path: |
-            Top-private-Plug-*-pilot.apk
-            Top-private-Plug-rebuild-source.tar.gz
-            Top-private-Plug-0.2.14-ui-screenshots.zip
+            Salvation-Mahumane-VPN-*-pilot.apk
+            Salvation-Mahumane-VPN-rebuild-source.tar.gz
+            Salvation-Mahumane-VPN-0.2.14-ui-screenshots.zip
             ui-screenshots/*.png
           if-no-files-found: error
           retention-days: 1
