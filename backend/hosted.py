@@ -47,10 +47,23 @@ def main():
         print('Waiting for owner to configure database credentials privately in hosting settings', flush=True)
         web.run_app(create_setup_app(), host='0.0.0.0', port=int(os.environ.get('PORT', '8080')), access_log=None)
         return
-    # Test mutations in a unique isolated schema before applying new schema to public.
-    subprocess.run([sys.executable, 'tools/verify_postgres.py', '--from-env'], check=True)
-    migration = Store(direct)
-    migration.close()
+    if os.environ.get('TPP_EXTERNAL_SCHEMA') == '1':
+        # Schema migrations are applied separately with an administrative connection.
+        # Runtime credentials have DML access only, and must never own/create schemas.
+        runtime = Store(dsn, initialize=False)
+        try:
+            with runtime.db() as db:
+                for table in ('admins', 'accounts', 'profiles', 'xray_profiles',
+                              'tokens', 'trial_devices', 'trial_tokens',
+                              'trial_xray_sessions', 'usage', 'audit'):
+                    db.execute('SELECT 1 FROM ' + table + ' LIMIT 1').fetchone()
+        finally:
+            runtime.close()
+    else:
+        # Existing deployments keep isolated regression and migration checks.
+        subprocess.run([sys.executable, 'tools/verify_postgres.py', '--from-env'], check=True)
+        migration = Store(direct)
+        migration.close()
     os.environ['TPP_SKIP_SCHEMA_INIT'] = '1'
     os.execv(sys.executable, [sys.executable, '-m', 'backend.app'])
 
