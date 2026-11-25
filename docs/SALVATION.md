@@ -24,3 +24,7 @@ Public download page: https://salvation-mahumane-vpn.ramashiaandrew3.chatgpt.sit
 Build a release with `tools/build_android.py --abi arm64-v8a --keystore /private/path/salvation-release.p12 --storepass-env SALVATION_SIGNING_PASSWORD` (plus SDK/ECJ options as needed). The keystore and password backup is private to the owner and must never enter the repository or public download site.
 
 The earlier debug-signed Salvation pilot must be uninstalled before installing the release-signed app. A consumed paid-device binding may need an admin reset, preserving expiry and usage. Top Private Plug has a different package and can remain installed. Existing accounts and imports use the existing Render/Neon backend. Physical MTN/Telkom/Cell C connection and expiry/quota checks remain part of device acceptance; a successful web deployment is not a proof of supplier routing.
+
+## Deployment status — 25 November 2026
+
+The public download Site deployed successfully. Both published phone APK downloads match their SHA-256 feed values. The Render deployment of commit f61d283263a0dabcdf2f690696c0688da0fac129 failed its pre-start PostgreSQL check: Neon returned "Your account or project has exceeded the quota. Upgrade your plan to increase limits." No database records or hosting billing settings were changed. The full service must not be called customer-ready until database access is restored, Render is successfully redeployed, and phone connectivity has been verified.
