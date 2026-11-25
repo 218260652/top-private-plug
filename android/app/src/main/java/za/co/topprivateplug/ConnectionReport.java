@@ -43,7 +43,7 @@ final class ConnectionReport {
         return "OTHER_ERROR";
     }
     static synchronized String snapshot() {
-        StringBuilder report = new StringBuilder("Salvation Mahumane VPN 0.2.14\nEvents since app launch (oldest first; last 48).\n");
+        StringBuilder report = new StringBuilder("Salvation Mahumane VPN 1.0.0\nEvents since app launch (oldest first; last 48).\n");
         report.append("Saved-profile startup verifies the account through VLESS/Trojan before enabling the VPN.\n");
         if (events.isEmpty()) report.append("No connection events yet. Retry the account check or connection first.\n");
         for (String event : events) report.append(event).append('\n');

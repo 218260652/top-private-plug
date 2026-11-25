@@ -21,7 +21,9 @@ public class PremiumHarness {
   meter.sample(true,6000000,12000000,7000);if(meter.downloadMbps!=16)throw new AssertionError("Hold latest measurement");
   meter.sample(true,6000000,12000000,19000);if(meter.downloadMbps!=0)throw new AssertionError("Stale rate");meter.sample(false,0,0,20000);if(meter.uploadMbps!=0)throw new AssertionError("Disconnected rate");
   if(!URLDecoder.decode(PurchaseRequest.supportUrl("Telkom",null),"UTF-8").contains("I need help"))throw new AssertionError("Support request");
-  String good="https://"+UpdatePolicy.HOST+"/downloads/Top-private-Plug-0.1.15-pilot.apk",hash=new String(new char[64]).replace('\\0','a');
+  String good="https://"+UpdatePolicy.HOST+"/downloads/Salvation-Mahumane-VPN-1.0.0-arm64-v8a.apk",hash=new String(new char[64]).replace('\\0','a');
+  if(!UpdatePolicy.manifestFor(new String[]{"arm64-v8a","armeabi-v7a"}).endsWith("/arm64-v8a.json"))throw new AssertionError("64-bit update feed");
+  if(!UpdatePolicy.manifestFor(new String[]{"armeabi-v7a"}).endsWith("/armeabi-v7a.json"))throw new AssertionError("32-bit update feed");
   UpdatePolicy.validate(16,"0.1.15-pilot",good,hash,43000000);
   for(String bad:new String[]{good.replace("https:","http:"),good.replace(UpdatePolicy.HOST,"evil.example"),good+"?redirect=evil",good+"#fragment",good.replace("/downloads/","/../downloads/"),good.replace("https://","https://user@"),good.replace(UpdatePolicy.HOST,UpdatePolicy.HOST+":8443")}){
    boolean reject=false;try{UpdatePolicy.validate(16,"next",bad,hash,43000000);}catch(Exception e){reject=true;}if(!reject)throw new AssertionError(bad);

@@ -110,17 +110,17 @@ jobs:
           tar --exclude=.git --exclude=.local-signing --exclude='*.aar' --exclude='*.apk' --exclude='android/build' --exclude='android/ui-build' --exclude='ui-screenshots' --exclude='*.zip' --exclude='__pycache__' -czf /tmp/Salvation-Mahumane-VPN-rebuild-source.tar.gz .
           cp /tmp/Salvation-Mahumane-VPN-rebuild-source.tar.gz .
       - name: Publish verified pilot as a GitHub Release
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        if: ${{ false }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           tag="salvation-0.2.14-${SOURCE_SHA:0:7}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          zip -j Salvation-Mahumane-VPN-0.2.14-pilot.zip Salvation-Mahumane-VPN-0.2.14-pilot.apk
-          sha256sum Salvation-Mahumane-VPN-*-pilot.apk Salvation-Mahumane-VPN-*-pilot.zip Salvation-Mahumane-VPN-rebuild-source.tar.gz Salvation-Mahumane-VPN-0.2.14-ui-screenshots.zip > SHA256SUMS
+          zip -j Salvation-Mahumane-VPN-1.0.0.zip Salvation-Mahumane-VPN-1.0.0.apk
+          sha256sum Salvation-Mahumane-VPN-*.apk Salvation-Mahumane-VPN-*.zip Salvation-Mahumane-VPN-rebuild-source.tar.gz Salvation-Mahumane-VPN-1.0.0-ui-screenshots.zip > SHA256SUMS
           gh release create "$tag" --target "$SOURCE_SHA" --title "Salvation Mahumane VPN 0.2.14" --notes "Salvation Mahumane VPN black-and-gold activation and home interfaces with live account and traffic values. Separate Android package installs alongside Top Private Plug. Existing activation-code backend and paid/trial device limits retained. WhatsApp group destination and branded update service remain to be configured. Debug-signed pilot; physical-device connectivity verification required."
-          gh release upload "$tag" Salvation-Mahumane-VPN-*-pilot.apk Salvation-Mahumane-VPN-*-pilot.zip Salvation-Mahumane-VPN-rebuild-source.tar.gz Salvation-Mahumane-VPN-0.2.14-ui-screenshots.zip SHA256SUMS
+          gh release upload "$tag" Salvation-Mahumane-VPN-*.apk Salvation-Mahumane-VPN-*.zip Salvation-Mahumane-VPN-rebuild-source.tar.gz Salvation-Mahumane-VPN-1.0.0-ui-screenshots.zip SHA256SUMS
           gh release view "$tag" --json url --jq .url
       - name: Save pilot APK
         if: always()
@@ -129,9 +129,9 @@ jobs:
         with:
           name: Salvation-Mahumane-VPN-pilot-${{ github.run_number }}
           path: |
-            Salvation-Mahumane-VPN-*-pilot.apk
+            Salvation-Mahumane-VPN-*.apk
             Salvation-Mahumane-VPN-rebuild-source.tar.gz
-            Salvation-Mahumane-VPN-0.2.14-ui-screenshots.zip
+            Salvation-Mahumane-VPN-1.0.0-ui-screenshots.zip
             ui-screenshots/*.png
           if-no-files-found: error
           retention-days: 1

@@ -94,7 +94,7 @@ public final class MainActivity extends Activity {
         Button connect=button(connected?"DISCONNECT":connecting?"CANCEL":"CONNECT",true,v->toggle());connect.setTextSize(16);add(content,connect,10);
         TextView state=text("",16,connected?MINT:MUTED,false);state.setTag("connection");state.setGravity(Gravity.CENTER);liveLabels.add(state);add(content,state,23);
         if(!TunnelService.detail.isEmpty()&&!connected)center(content,TunnelService.detail,12,MUTED,10);
-        Button group=button("Join WhatsApp Group  ↗",false,v->{String link=getString(R.string.whatsapp_group_url);if(link.isEmpty())message("The WhatsApp group link has not been configured yet.");else openUrl(link);});group.setTextColor(CYAN);add(content,group,2);center(content,"VPN news and updates",12,TEXT,0);
+        String groupUrl=getString(R.string.whatsapp_group_url);Button group=button(groupUrl.isEmpty()?"WhatsApp support":"Join WhatsApp Group  ↗",false,v->openUrl(groupUrl.isEmpty()?PurchaseRequest.supportUrl(carrier,account==null?null:account.optString("id",null)):groupUrl));group.setTextColor(CYAN);add(content,group,2);center(content,groupUrl.isEmpty()?"Account and connection help":"VPN news and updates",12,TEXT,0);
         View space=new View(this);content.addView(space,new LinearLayout.LayoutParams(-1,dp(150)));
     }
     void selectNetwork(){if(!"Disconnected".equals(TunnelService.state)){message("Disconnect before changing the network.");return;}String[] options={"MTN","Telkom","Cell C"};new AlertDialog.Builder(this).setTitle("Network").setSingleChoiceItems(options,Arrays.asList(options).indexOf(carrier),(d,n)->{carrier=options[n];selectedProfile="";d.dismiss();render();}).setNegativeButton("Cancel",null).show();}

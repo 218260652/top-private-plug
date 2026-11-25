@@ -23,7 +23,7 @@ final class ControlPolicy {
         String target=literal?"\"ip\":[\""+host+"\"]":"\"domain\":[\"full:"+host+"\"]";
         return "[{\"type\":\"field\",\"inboundTag\":[\"admin-control\"],"+target+
             ",\"port\":\""+port+"\",\"network\":\"tcp\",\"outboundTag\":\""+tunnelTag+"\"},"+
-            (bootstrap?"":"{\"type\":\"field\",\"inboundTag\":[\"admin-control\"],\"domain\":[\"full:top-private-plug-downloads.ramashiaemily.chatgpt.site\"],\"port\":\"443\",\"network\":\"tcp\",\"outboundTag\":\""+tunnelTag+"\"},")+
+            (bootstrap?"":"{\"type\":\"field\",\"inboundTag\":[\"admin-control\"],\"domain\":[\"full:salvation-mahumane-vpn.ramashiaandrew3.chatgpt.site\"],\"port\":\"443\",\"network\":\"tcp\",\"outboundTag\":\""+tunnelTag+"\"},")+
             "{\"type\":\"field\",\"inboundTag\":[\"admin-control\"],\"network\":\"tcp,udp\",\"outboundTag\":\"block\"}"+
             (bootstrap?",{\"type\":\"field\",\"network\":\"tcp,udp\",\"outboundTag\":\"block\"}":"")+"]";
     }

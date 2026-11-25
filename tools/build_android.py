@@ -22,7 +22,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--sdk', default=os.environ.get('ANDROID_HOME', ''))
     parser.add_argument('--ecj', default=os.environ.get('ECJ_JAR', ''))
+    parser.add_argument('--abi', choices=['universal', 'arm64-v8a', 'armeabi-v7a'], default='universal')
+    parser.add_argument('--keystore', default='')
+    parser.add_argument('--key-alias', default='salvation')
+    parser.add_argument('--storepass-env', default='SALVATION_SIGNING_PASSWORD')
     args = parser.parse_args()
+    if args.keystore and not os.environ.get(args.storepass_env):
+        parser.error('The release signing password environment variable is not set')
     if not args.sdk:
         parser.error('Set ANDROID_HOME or pass --sdk')
     sdk = Path(args.sdk)
@@ -45,7 +51,7 @@ def main():
     manifest.write(build / 'AndroidManifest.xml', encoding='utf-8', xml_declaration=True)
     run(tools / 'aapt2', 'link', '-o', build / 'base.apk', '--manifest', build / 'AndroidManifest.xml',
         '-I', android, '--java', build / 'gen', '--custom-package', 'za.co.topprivateplug', '--min-sdk-version', '26', '--target-sdk-version', '35',
-        '-A', source / 'assets', '--version-code', '24', '--version-name', '0.2.14-pilot', '--debug-mode', build / 'res.zip')
+        '-A', source / 'assets', '--version-code', '100', '--version-name', '1.0.0', *([] if args.keystore else ['--debug-mode']), build / 'res.zip')
     aar = ROOT / 'android' / 'app' / 'libs' / 'libv2ray.aar'
     if not aar.exists():
         raise SystemExit('Build the pinned libv2ray.aar first; see tools/build_xray.sh')
@@ -65,22 +71,30 @@ def main():
             apk.write(dex, dex.name)
         with zipfile.ZipFile(aar) as archive:
             for entry in archive.infolist():
-                if entry.filename.startswith('jni/') and entry.filename.endswith('.so'):
+                if entry.filename.startswith('jni/') and entry.filename.endswith('.so') and (args.abi == 'universal' or entry.filename.split('/')[1] == args.abi):
                     apk.writestr('lib/' + entry.filename[4:], archive.read(entry))
                 elif entry.filename.startswith('assets/') and not entry.is_dir():
                     apk.writestr(entry.filename, archive.read(entry))
     run(tools / 'zipalign', '-p', '-f', '4', build / 'unsigned.apk', build / 'aligned.apk')
-    signing = ROOT / '.local-signing'
-    signing.mkdir(exist_ok=True)
-    keystore = signing / 'debug.keystore'
-    if not keystore.exists():
-        run('keytool', '-genkeypair', '-keystore', keystore, '-storepass', 'android', '-keypass', 'android', '-alias',
-            'androiddebugkey', '-dname', 'CN=Android Debug,O=Android,C=ZA', '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000')
-    output = ROOT / 'Salvation-Mahumane-VPN-0.2.14-pilot.apk'
-    run(tools / 'apksigner', 'sign', '--ks', keystore, '--ks-key-alias', 'androiddebugkey', '--ks-pass', 'pass:android',
-        '--key-pass', 'pass:android', '--out', output, build / 'aligned.apk')
+    if args.keystore:
+        keystore = Path(args.keystore)
+        alias = args.key_alias
+        password = 'env:' + args.storepass_env
+    else:
+        signing = ROOT / '.local-signing'
+        signing.mkdir(exist_ok=True)
+        keystore = signing / 'debug.keystore'
+        if not keystore.exists():
+            run('keytool', '-genkeypair', '-keystore', keystore, '-storepass', 'android', '-keypass', 'android', '-alias',
+                'androiddebugkey', '-dname', 'CN=Android Debug,O=Android,C=ZA', '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000')
+        alias = 'androiddebugkey'
+        password = 'pass:android'
+    suffix = '' if args.abi == 'universal' else '-' + args.abi
+    output = ROOT / ('Salvation-Mahumane-VPN-1.0.0' + suffix + '.apk')
+    run(tools / 'apksigner', 'sign', '--ks', keystore, '--ks-key-alias', alias, '--ks-pass', password,
+        '--key-pass', password, '--out', output, build / 'aligned.apk')
     run(tools / 'apksigner', 'verify', '--verbose', output)
-    print('Built DEBUG-SIGNED PILOT:', output)
+    print('Built RELEASE-SIGNED APK:' if args.keystore else 'Built DEBUG-SIGNED TEST APK:', output)
 
 
 if __name__ == '__main__':
