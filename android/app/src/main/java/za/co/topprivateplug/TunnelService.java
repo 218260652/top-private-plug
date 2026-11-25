@@ -120,7 +120,7 @@ public final class TunnelService extends VpnService {
         PendingIntent activity = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent stop = PendingIntent.getService(this, 1, new Intent(this, TunnelService.class).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification notification = new Notification.Builder(this, "vpn").setSmallIcon(za.co.topprivateplug.R.drawable.ic_launcher)
-            .setContentTitle("Top private Plug").setContentText(text).setContentIntent(activity).setOngoing(true)
+            .setContentTitle("Salvation Mahumane VPN").setContentText(text).setContentIntent(activity).setOngoing(true)
             .addAction(new Notification.Action.Builder(null, "Disconnect", stop).build()).build();
         if (Build.VERSION.SDK_INT >= 34) startForeground(10, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED);
         else startForeground(10, notification);
@@ -219,7 +219,7 @@ public final class TunnelService extends VpnService {
         // Native sockets bypass the TUN; API calls explicitly use its loopback control proxy.
         // IPv6 stays routed into the tunnel so nothing leaks to the carrier, and
         // TunnelConfig fails it fast because supplier servers have no IPv6 egress.
-        Builder builder = new Builder().setSession("Top private Plug")
+        Builder builder = new Builder().setSession("Salvation Mahumane VPN")
             .setMtu(1400).addAddress("10.99.0.2", 30).addAddress("fd00:99::2", 126)
             .addRoute("0.0.0.0", 0).addRoute("::", 0)
             .addDnsServer("1.1.1.1").addDnsServer("8.8.8.8").setBlocking(false);

@@ -7,7 +7,7 @@ final class CustomerMessage {
             case 401: return "Please activate your access again.";
             case 403: return "Your access needs attention. Check your plan or contact support.";
             case 409: return "Please disconnect, wait a moment and try again.";
-            case 426: return "Please install the latest Top private Plug update.";
+            case 426: return "Please install the latest Salvation Mahumane VPN update.";
             case 429: return "Please wait a moment before trying again.";
             default: return "We could not complete this request. Please retry or contact support.";
         }
