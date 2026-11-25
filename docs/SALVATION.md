@@ -12,3 +12,7 @@ The Android interface follows the two owner-supplied screenshots: gold activatio
 - This build is debug-signed for review. A phone/carrier connection check remains necessary. No backend or live dashboard changes are deployed by this branch.
 
 Build with `python tools/build_android.py --sdk ANDROID_SDK_PATH` after building the pinned Xray AAR as documented in XRAY.md. Version 0.2.14 is the starting engine version.
+
+## Matching admin dashboard
+
+The dashboard sign-in, setup, overview, account lists, profile import, activity and edit dialogs use the Salvation name, gold shield, dark navy/black cards, gold borders and buttons, and ribbon background. Responsive layouts support phones and desktops. Dashboard authentication, existing endpoint paths, VLESS import, code creation, paid/trial device rules and account actions retain their original behavior. No existing hosting, database, service or environment-variable identifiers were renamed.
