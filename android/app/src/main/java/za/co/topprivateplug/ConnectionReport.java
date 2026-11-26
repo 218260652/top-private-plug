@@ -6,7 +6,7 @@ import java.util.Locale;
 /** In-memory diagnostics. Accept only fixed stages, routes and error categories. */
 final class ConnectionReport {
     enum Stage {
-        START, NO_SAVED_PROFILE, SAVED_PROFILE_START, ACCOUNT_VIA_TUNNEL, ACCOUNT_CHALLENGE, DEVICE_PROOF, ACCOUNT_AUTHORIZATION,
+        START, NO_SAVED_PROFILE, SAVED_PROFILE_START, TUNNEL_PROBE, TUNNEL_READY, ACCOUNT_VIA_TUNNEL, ACCOUNT_CHALLENGE, DEVICE_PROOF, ACCOUNT_AUTHORIZATION,
         VPN_INTERFACE, NATIVE_START, TUNNEL_HTTPS, CONNECTED,
         HEARTBEAT_RETRY, NETWORK_CHANGED, LEASE_CONFLICT, RECONNECT_SCHEDULED, RECONNECT_EXHAUSTED, CANCEL_OR_CLEANUP,
         CLEANUP_COMPLETE, WATCHDOG_TIMEOUT, ENGINE_LOAD_FAILED
@@ -19,7 +19,7 @@ final class ConnectionReport {
         events.addLast(String.format(Locale.ROOT, "+%.1fs %s", (System.nanoTime()-origin)/1e9, event));
     }
     private static String route(String path) {
-        for (String allowed : new String[]{"/v1/challenge", "/v1/connect", "/v1/activate", "/v1/status",
+        for (String allowed : new String[]{"/health", "/v1/challenge", "/v1/connect", "/v1/activate", "/v1/status",
                 "/v1/profiles", "/v1/xray/heartbeat", "/v1/xray/disconnect"})
             if (allowed.equals(path)) return allowed;
         return "other account request";
@@ -43,7 +43,7 @@ final class ConnectionReport {
         return "OTHER_ERROR";
     }
     static synchronized String snapshot() {
-        StringBuilder report = new StringBuilder("Salvation Mahumane VPN 1.0.0\nEvents since app launch (oldest first; last 48).\n");
+        StringBuilder report = new StringBuilder("Salvation Mahumane VPN 1.0.1\nEvents since app launch (oldest first; last 48).\n");
         report.append("Saved-profile startup verifies the account through VLESS/Trojan before enabling the VPN.\n");
         if (events.isEmpty()) report.append("No connection events yet. Retry the account check or connection first.\n");
         for (String event : events) report.append(event).append('\n');

@@ -76,7 +76,7 @@ public final class MainActivity extends Activity {
         if(!lastError.isEmpty()&&!vault.token().isEmpty())row(content,"info","Account update",lastError,CYAN,()->refresh());
         switch(tab){case "Usage":usage();break;case "Plans":plans();break;case "Settings":settings();break;case "Account":accountPage();break;case "Notifications":notificationPage();break;case "Service settings":servicePage();break;case "Privacy & security":privacyPage();break;case "Support & help":supportPage();break;case "About":aboutPage();break;default:home();}
         scroll.post(()->scroll.scrollTo(0,y));updateLiveLabels();}
-    void showMenu(){final String[] pages={"Home","Usage","Plans","Account","Settings","Notifications","Service settings","Support & help"};new AlertDialog.Builder(this).setTitle("Salvation Mahumane VPN").setItems(pages,(d,n)->{tab=pages[n];render();if(tab.equals("Usage"))loadGraph();}).setNegativeButton("Close",null).show();}
+    void showMenu(){final String[] pages={"Home","Usage","Plans","Account","Settings","Notifications","Service settings","Support & help","Connection report"};new AlertDialog.Builder(this).setTitle("Salvation Mahumane VPN").setItems(pages,(d,n)->{if(pages[n].equals("Connection report")){showConnectionReport();return;}tab=pages[n];render();if(tab.equals("Usage"))loadGraph();}).setNegativeButton("Close",null).show();}
     void title(String heading,String subtitle){add(content,text(heading,29,TEXT,true),5);if(!subtitle.isEmpty())add(content,text(subtitle,14,MUTED,false),13);}
     void country(){LinearLayout box=column();box.setPadding(dp(12),dp(12),dp(12),dp(12));box.setBackground(shape(PANEL,LINE,24));TextView t=text(vault.token().isEmpty()?"●  South Africa":"🇿🇦 South Africa",18,vault.token().isEmpty()?CYAN:TEXT,vault.token().isEmpty());t.setGravity(vault.token().isEmpty()?Gravity.CENTER:Gravity.LEFT);add(box,t,0);add(content,box,13);}
     int networkColor(String n){return n.equals("MTN")?YELLOW:n.equals("Cell C")?ORANGE:TELKOM;}
@@ -153,7 +153,7 @@ public final class MainActivity extends Activity {
         } catch(Exception ignored) { return "Current network: unknown\n"; }
     }
     void showConnectionReport() {
-        final String report="Salvation Mahumane VPN support\nNetwork: "+carrier+"\nConnection: "+TunnelService.state+"\nVersion: "+UpdatePolicy.VERSION_NAME;
+        final String report="Salvation Mahumane VPN support\nNetwork: "+carrier+"\nConnection: "+TunnelService.state+"\nVersion: "+UpdatePolicy.VERSION_NAME+"\n"+networkSummary()+ConnectionReport.snapshot();
         TextView body=text(report,12,TEXT,false);body.setTextIsSelectable(true);body.setPadding(dp(16),dp(16),dp(16),dp(16));
         ScrollView scroll=new ScrollView(this);scroll.addView(body);
         new AlertDialog.Builder(this).setTitle("Connection report").setView(scroll)

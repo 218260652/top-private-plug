@@ -5,8 +5,8 @@ import java.net.URI;
 /** Reject arbitrary update sources before downloading any executable bytes. */
 final class UpdatePolicy {
     // Must match versionCode/versionName in android/app/build.gradle and tools/build_android.py.
-    static final int VERSION_CODE=100;
-    static final String VERSION_NAME="1.0.0";
+    static final int VERSION_CODE=101;
+    static final String VERSION_NAME="1.0.1";
     static final String HOST="salvation-mahumane-vpn.ramashiaandrew3.chatgpt.site";
     static final String MANIFEST="https://"+HOST+"/updates/latest.json";
     static String manifestFor(String[] abis) {

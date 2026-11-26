@@ -51,7 +51,7 @@ def main():
     manifest.write(build / 'AndroidManifest.xml', encoding='utf-8', xml_declaration=True)
     run(tools / 'aapt2', 'link', '-o', build / 'base.apk', '--manifest', build / 'AndroidManifest.xml',
         '-I', android, '--java', build / 'gen', '--custom-package', 'za.co.topprivateplug', '--min-sdk-version', '26', '--target-sdk-version', '35',
-        '-A', source / 'assets', '--version-code', '100', '--version-name', '1.0.0', *([] if args.keystore else ['--debug-mode']), build / 'res.zip')
+        '-A', source / 'assets', '--version-code', '101', '--version-name', '1.0.1', *([] if args.keystore else ['--debug-mode']), build / 'res.zip')
     aar = ROOT / 'android' / 'app' / 'libs' / 'libv2ray.aar'
     if not aar.exists():
         raise SystemExit('Build the pinned libv2ray.aar first; see tools/build_xray.sh')
@@ -90,7 +90,7 @@ def main():
         alias = 'androiddebugkey'
         password = 'pass:android'
     suffix = '' if args.abi == 'universal' else '-' + args.abi
-    output = ROOT / ('Salvation-Mahumane-VPN-1.0.0' + suffix + '.apk')
+    output = ROOT / ('Salvation-Mahumane-VPN-1.0.1' + suffix + '.apk')
     run(tools / 'apksigner', 'sign', '--ks', keystore, '--ks-key-alias', alias, '--ks-pass', password,
         '--key-pass', password, '--out', output, build / 'aligned.apk')
     run(tools / 'apksigner', 'verify', '--verbose', output)

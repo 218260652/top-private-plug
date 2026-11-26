@@ -18,7 +18,12 @@ public class ApiHarness {
   }:null);
   Vault vault=new Vault();Api api=new Api(vault);
   api.request("/v1/status",null,true);check(last==null);check(connection.getRequestProperty("Connection")==null&&!connection.disconnected);
+  int beforeProbe=calls;
+  try {api.verifyTunnel();throw new AssertionError();}catch(Exception expected){}
+  check(calls==beforeProbe);
   Api.throughTunnel(vault.endpoint(),12345);
+  api.verifyTunnel();check(last!=null);check(paths.get(paths.size()-1).equals("/health"));
+  check(connection.getRequestProperty("Authorization")==null);
   api.request("/v1/challenge",null,false);
   check(last!=null&&last.type()==Proxy.Type.HTTP&&last.address().equals(new InetSocketAddress("127.0.0.1",12345)));
   check(connection.getInstanceFollowRedirects()==false);
@@ -75,7 +80,7 @@ class DeviceKey {static String publicKey(){return "public";}static String sign(S
 '''
         json_stub='''package org.json;public class JSONObject {
  private java.util.Map<String,Object> values=new java.util.HashMap<>();
- public JSONObject(){}public JSONObject(String value){values.put("engine","xray");}public JSONObject put(String k,Object v){values.put(k,v);return this;}
+ public JSONObject(){}public JSONObject(String value){values.put("engine","xray");values.put("status","ok");}public JSONObject put(String k,Object v){values.put(k,v);return this;}
  public String optString(String k){return optString(k,"");}public String optString(String k,String d){return values.containsKey(k)?values.get(k).toString():d;}
  public String getString(String k){return optString(k,"value");}public JSONObject getJSONObject(String k){return this;}
  public String toString(){return "{}";}

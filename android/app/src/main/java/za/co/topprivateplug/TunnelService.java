@@ -170,9 +170,12 @@ public final class TunnelService extends VpnService {
                 ConnectionReport.stage(ConnectionReport.Stage.ACCOUNT_VIA_TUNNEL);
             } else {
                 ConnectionReport.stage(ConnectionReport.Stage.NO_SAVED_PROFILE);
-                if(!NetworkState.validated(this)) throw new Exception("No saved connection settings for this profile. Use Wi-Fi once and tap Save connection settings before testing mobile data.");
-                progress("Saving the connection profile for first use; Wi-Fi or mobile data is needed once");
+                throw new Exception("No saved connection profile. Activate or save connection settings once using Wi-Fi or available mobile data, then retry.");
             }
+            progress("Checking connectivity through the saved tunnel");
+            api.verifyTunnel();
+            if(!running.get()) return;
+            progress("Tunnel ready. Verifying account through the tunnel");
             JSONObject result = api.connect(profileId, this::progress);
             if (!"xray".equals(result.optString("engine"))) throw new Exception("Only imported connection profiles are supported. Ask your admin to replace this profile.");
             xrayLease=result.getString("lease"); hadLease=true;

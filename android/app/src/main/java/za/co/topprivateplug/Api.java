@@ -89,6 +89,13 @@ final class Api {
         return new JSONObject().put("public_key", publicKey).put("challenge_id", challenge.getString("id"))
             .put("signature", DeviceKey.sign(challenge.getString("message")));
     }
+    void verifyTunnel() throws Exception {
+        if(tunnelRoute==null) throw new Exception("Start the saved tunnel before checking connectivity.");
+        ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_PROBE);
+        JSONObject result=request("/health",null,false);
+        if(!"ok".equals(result.optString("status"))) throw new Exception("Tunnel connectivity check did not succeed.");
+        ConnectionReport.stage(ConnectionReport.Stage.TUNNEL_READY);
+    }
     JSONObject activate(String code) throws Exception {
         JSONObject result = request("/v1/activate", proof("activate").put("code", code.trim()), false);
         vault.token(result.getString("token")); return result.getJSONObject("account");
