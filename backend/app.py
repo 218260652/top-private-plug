@@ -171,7 +171,10 @@ def create_app(store, public_origin='http://127.0.0.1:8080', secure_cookies=True
 
     async def activate(request):
         limiter.check(('activate', peer(request)), 150, 300)
-        return web.json_response(store.activate(await body(request), require_network=True))
+        # Released 1.0.0 clients predate the carrier field and network header.
+        # Keep their existing token protocol; explicit carrier clients remain bound.
+        data = await body(request)
+        return web.json_response(store.activate(data, require_network='carrier' in data))
 
     async def status(request):
         account = store.client_auth(token(request))

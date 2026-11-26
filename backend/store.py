@@ -153,7 +153,7 @@ class Store:
         with self.db() as db:
             bound=db.execute('SELECT carrier FROM token_networks WHERE hash=? AND expires>?',(digest(token),self.now())).fetchone()
         # Legacy tokens remain usable by older installed apps. New activations
-        # always issue a network-bound token and cannot omit this header.
+        # with an explicit carrier issue a bound token and cannot omit this header.
         if bound and (carrier != bound['carrier'] or carrier != account['carrier']):
             raise Fault('Select the network assigned to this access code',422)
         if carrier is not None and (account['carrier'] not in self.NETWORKS or carrier != account['carrier']):
@@ -401,6 +401,10 @@ class Store:
                 if selected not in self.NETWORKS or not row['carrier'] or selected != row['carrier']:
                     raise Fault('Select the network assigned to this access code',422)
                 self.validate_assignment(db,json.loads(row['profiles']),row['carrier'])
+            elif row['carrier']:
+                # Older released apps receive only the profiles assigned to this
+                # code. Validate the assignment even without a client selection.
+                self.validate_assignment(db, json.loads(row['profiles']), row['carrier'])
             if row['kind'] == 'trial':
                 # The original trial clock and quota belong to the one account,
                 # not to each device. Re-activation must not restart the clock.

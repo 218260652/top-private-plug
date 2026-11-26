@@ -79,7 +79,7 @@ class NetworkBindingApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):await self.client.close();self.store.close();self.tmp.cleanup()
     async def test_public_activation_requires_matching_network_then_all_routes_enforce_it(self):
         health=await self.client.get('/health');self.assertEqual((await health.json())['network_binding_version'],1)
-        for network in [None,'MTN','Telkom']:
+        for network in ['', 'MTN','Telkom']:
             data=dict(proof(self.store,self.private,self.public,'activate'),code=self.item['code'])
             if network is not None:data['carrier']=network
             r=await self.client.post('/v1/activate',json=data);self.assertEqual(r.status,422)
@@ -92,3 +92,23 @@ class NetworkBindingApiTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(r.status,422,(network,path,await r.text()))
         r=await self.client.get('/v1/profiles',headers={'Authorization':'Bearer '+token,'X-TPP-Network':'Cell C','X-TPP-Engines':'xray'})
         self.assertEqual(r.status,200);self.assertEqual(len((await r.json())['profiles']),1)
+
+    async def test_released_client_trial_activation_and_profile_preparation(self):
+        headers={'X-TPP-Engines':'xray','X-TPP-Features':'legacy-tls-test-v1'}
+        expiries=[]
+        for _ in range(2):
+            private,public=device()
+            payload=dict(proof(self.store,private,public,'activate'),code=self.item['code'])
+            r=await self.client.post('/v1/activate',headers=headers,json=payload)
+            self.assertEqual(r.status,200,await r.text());activation=await r.json()
+            expiries.append(activation['account']['expires'])
+            auth=dict(headers,Authorization='Bearer '+activation['token'])
+            r=await self.client.get('/v1/profiles',headers=auth)
+            self.assertEqual(r.status,200);profiles=(await r.json())['profiles']
+            self.assertEqual(len(profiles),1)
+            r=await self.client.post('/v1/connect',headers=auth,json=dict(proof(self.store,private,public,'connect'),profile_id=profiles[0]['id']))
+            self.assertEqual(r.status,200,await r.text());lease=(await r.json())['lease']
+            r=await self.client.post('/v1/xray/disconnect',headers=auth,json={'lease':lease})
+            self.assertEqual(r.status,200)
+        self.assertEqual(expiries[0],expiries[1])
+        self.assertEqual(self.store.account(self.item['account']['id'])['device_count'],2)
